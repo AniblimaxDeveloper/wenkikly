@@ -4,7 +4,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:9.3.1'
+        classpath 'com.android.tools.build:gradle:8.5.2'
     }
 }
 
@@ -16,11 +16,10 @@ allprojects {
 }
 
 rootProject.buildDir = '../build'
-
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
     
-    // PENTING: afterEvaluate harus SEBELUM evaluationDependsOn
+    // Trik aman untuk paksa SDK 36 ke semua plugin tanpa bikin error
     afterEvaluate { project ->
         if (project.hasProperty('android')) {
             project.android {
@@ -28,9 +27,6 @@ subprojects {
             }
         }
     }
-    
-    // Baris ini harus tetap ada, tapi posisinya SETELAH afterEvaluate
-    project.evaluationDependsOn(':app')
 }
 
 tasks.register("clean", Delete) {
