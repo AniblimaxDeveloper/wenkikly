@@ -44,12 +44,13 @@ class AIService {
   }
 
   String _getBackendModel(String whenModel) {
+    // Update model ID ke versi terbaru (3.1)
     if (whenModel.contains('Free') || whenModel.contains('when-1') || whenModel.contains('when-2')) {
-      return 'meta-llama/llama-3-8b-instruct';
+      return 'meta-llama/llama-3.1-8b-instruct'; 
     } else if (whenModel.contains('when-go') || whenModel.contains('when-plus')) {
-      return 'meta-llama/llama-3-70b-instruct';
+      return 'meta-llama/llama-3.1-70b-instruct'; 
     } else {
-      return 'openai/gpt-4o-mini';
+      return 'openai/gpt-4o-mini'; 
     }
   }
 }
