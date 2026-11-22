@@ -8,7 +8,6 @@ class AIService {
   static const String _defaultApiUrl = 'https://openrouter.ai/api/v1/chat/completions';
   static const String _envApiKey = String.fromEnvironment('OPENROUTER_API_KEY');
   
-  // SYSTEM PROMPT "JAILBREAK" UNTUK KECERDASAN MAXIMAL
   static const String _superPrompt = '''
 Kamu adalah Wenkikly AI, sebuah entitas kecerdasan buatan super canggih, all-rounder, dan ultra-pintar. 
 Aturan berpikir dan menjawab:
@@ -37,12 +36,10 @@ Aturan berpikir dan menjawab:
     final subService = SubscriptionService();
     final tier = await subService.getCurrentTier();
     
-    // Cek apakah model premium
     if (tier == 'free' && (session.modelId.contains('Pro') || session.modelId.contains('Ultra') || session.modelId.contains('Max'))) {
       return 'Akses Ditolak: Anda memerlukan paket Pro/Max untuk menggunakan model ini. Silakan Upgrade di menu Berlangganan.';
     }
 
-    // Gabungkan Super Prompt dengan prompt kustom user
     String systemPrompt = _superPrompt;
     if (session.systemPromptOverride != null && session.systemPromptOverride!.isNotEmpty) {
       systemPrompt += '\n\nInstruksi Tambahan: ${session.systemPromptOverride}';
@@ -96,6 +93,34 @@ Aturan berpikir dan menjawab:
     } catch (e) {
       if (e.toString().contains('TimeoutException')) return 'Error: Timeout.';
       return 'Gagal terhubung ke server AI.';
+    }
+  }
+
+  // INI FUNGSI YANG TADI HILANG
+  Future<String> enhancePrompt(String prompt) async {
+    final apiKey = await _getApiKey();
+    if (apiKey.isEmpty) return prompt;
+
+    try {
+      final response = await http.post(
+        Uri.parse(await _getApiUrl()),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'},
+        body: jsonEncode({
+          'model': 'meta-llama/llama-3.1-8b-instruct',
+          'messages': [
+            {'role': 'system', 'content': 'Rewrite the user input to be a highly detailed, professional prompt. Output ONLY the prompt.'},
+            {'role': 'user', 'content': prompt}
+          ],
+          'temperature': 0.7,
+        }),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['choices'][0]['message']['content'] ?? prompt;
+      }
+      return prompt;
+    } catch (e) {
+      return prompt;
     }
   }
 

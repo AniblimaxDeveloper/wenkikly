@@ -32,7 +32,7 @@ void main() async {
   try {
     await Firebase.initializeApp(); 
   } catch (e) {
-    print('Firebase init failed. Pastikan google-services.json ada di android/app/. Error: $e');
+    print('Firebase init failed. Error: $e');
   }
   runApp(const WenkiklyApp());
 }
@@ -89,7 +89,6 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
-  final TextEditingController _chatSearchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final AIService _aiService = AIService();
   final StorageService _storageService = StorageService();
@@ -107,7 +106,9 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isFullWidth = false;
   bool _isAutoScroll = true;
   String _timeFormat = '24h';
-  String _quotedMessage = ''; // FIX: Variabel yang tadi bikin error
+  
+  // INI VARIABEL YANG TADI HILANG
+  String _quotedMessage = ''; 
 
   List<ChatSession> _sessions = [];
   ChatSession? _currentSession;
@@ -211,7 +212,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // FIX: Fungsi _exportChat yang tadi error
   Future<void> _exportChat() async {
     if (_currentSession == null || _currentSession!.messages.isEmpty) return;
     String text = "# ${_currentSession!.title}\n\n";
@@ -234,7 +234,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendMessage({String? text}) async {
     final messageText = text ?? _controller.text.trim();
     if (messageText.isEmpty && _pickedImage == null || _currentSession == null) return;
-    if (!_selectedModel.isUnlimited && _currentSession!.messages.length >= 10) { 
+    
+    // Cek Limit Free vs Premium
+    if (_tier == 'free' && _currentSession!.messages.length >= 10) { 
       _showLimitDialog();
       return; 
     }
@@ -242,7 +244,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _haptic();
     String finalText = messageText.startsWith('/image ') ? '$messageText --ratio $_selectedRatio' : messageText;
     if (_quotedMessage.isNotEmpty) {
-      finalText = "> $quotedMessage\n\n$finalText";
+      finalText = "> $_quotedMessage\n\n$finalText";
       _quotedMessage = '';
     }
 
@@ -440,7 +442,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                             else
                                               MarkdownBody(
                                                   data: msg['content']!,
-                                                  styleSheet: const MarkdownStyleSheet(p: TextStyle(fontSize: 15, color: Colors.white)),
+                                                  // FIX: Hapus 'const' dari MarkdownStyleSheet
+                                                  styleSheet: MarkdownStyleSheet(p: const TextStyle(fontSize: 15, color: Colors.white)),
                                                   builders: {'code': HighlightCodeBuilder()},
                                                 ),
                                             const SizedBox(height: 8),
