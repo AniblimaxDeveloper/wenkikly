@@ -27,10 +27,19 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Generate App Icons (LOGO BARU)
+      - name: Generate App Icons (LOGO ASLI)
         run: dart run flutter_launcher_icons
 
-      - name: Build Release APK
+      # --- PROSES SIGNING RELEASE ASLI ---
+      - name: Generate Release Keystore
+        run: |
+          keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias release -storepass wenkikly123 -keypass wenkikly123 -dname "CN=Wenkikly, OU=Dev, O=Wenkikly, L=Jakarta, S=Indonesia, C=ID"
+          echo "storeFile=release.jks" > android/key.properties
+          echo "storePassword=wenkikly123" >> android/key.properties
+          echo "keyAlias=release" >> android/key.properties
+          echo "keyPassword=wenkikly123" >> android/key.properties
+
+      - name: Build Signed Release APK
         run: flutter build apk --release --dart-define=OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
 
       - name: Upload APK Artifact
