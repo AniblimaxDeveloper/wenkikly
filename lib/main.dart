@@ -56,7 +56,7 @@ class _WenkiklyAppState extends State<WenkiklyApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
       if (_isBiometricEnabled) {
-        setState(() => _isAuthenticated = false); // FITUR: Auto-Lock
+        setState(() => _isAuthenticated = false); 
       }
     }
   }
@@ -146,6 +146,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _chatSearchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final AIService _aiService = AIService();
   final StorageService _storageService = StorageService();
@@ -161,7 +162,9 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isEnhancing = false;
   bool _hideTokens = false;
   bool _isFullWidth = false;
+  bool _isAutoScroll = true;
   String _timeFormat = '24h';
+  String _quotedMessage = '';
 
   List<ChatSession> _sessions = [];
   ChatSession? _currentSession;
@@ -169,10 +172,12 @@ class _ChatScreenState extends State<ChatScreen> {
   AIModel _selectedModel = wenkiklyModels[0];
   bool _showScrollToTop = false;
   String _searchQuery = '';
+  String _chatSearchQuery = '';
   XFile? _pickedImage;
   String _selectedRatio = '1:1';
 
   final List<String> _quickPrompts = ["Buatkan kode Flutter UI login.", "Jelaskan AI dengan sederhana.", "Tulis artikel teknologi.", "Buat puisi senja."];
+  final List<String> _randomIdeas = ["Jelaskan teori kuantum untuk anak SD.", "Buat script Python untuk scraping web.", "Tulis email lamaran kerja UI/UX.", "Berikan 5 ide bisnis modal kecil.", "Analisis SWOT aplikasi TikTok."];
 
   @override
   void initState() {
@@ -195,6 +200,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _isHaptics = prefs.getBool('haptics_enabled') ?? true;
       _hideTokens = prefs.getBool('hide_tokens_global') ?? false;
       _isFullWidth = prefs.getBool('is_full_width') ?? false;
+      _isAutoScroll = prefs.getBool('is_auto_scroll') ?? true;
       _timeFormat = prefs.getString('time_format') ?? '24h';
       _sessions = sessions;
       if (_sessions.isNotEmpty) {
@@ -229,6 +235,8 @@ class _ChatScreenState extends State<ChatScreen> {
     await _flutterTts.speak(cleanText);
   }
 
+  void _stopTts() async => await _flutterTts.stop();
+
   void _haptic() { if (_isHaptics) HapticFeedback.lightImpact(); }
 
   Future<void> _pickImage() async {
@@ -238,8 +246,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _createNewSession() {
     final newSession = ChatSession(id: DateTime.now().millisecondsSinceEpoch.toString(), title: 'Obrolan Baru', messages: [], modelId: _selectedModel.id);
-    setState(() { _sessions.insert(0, newSession); _currentSession = newSession; _controller.clear(); });
+    setState(() { _sessions.insert(0, newSession); _currentSession = newSession; _controller.clear(); _quotedMessage = ''; });
     _storageService.saveSessions(_sessions);
+  }
+
+  void _clearCurrentChat() {
+    if (_currentSession != null) {
+      setState(() { _currentSession!.messages.clear(); });
+      _storageService.saveSessions(_sessions);
+    }
   }
 
   void _deleteSession(String id) {
@@ -275,6 +290,49 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  void _showChatStats() {
+    if (_currentSession == null) return;
+    int totalMsgs = _currentSession!.messages.length;
+    int totalWords = 0;
+    int totalTokens = 0;
+    for (var msg in _currentSession!.messages) {
+      totalWords += msg['content'].toString().split(' ').length;
+      totalTokens += (msg['content'].toString().length / 4).ceil();
+    }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Statistik Obrolan'),
+        content: Text('Total Pesan: $totalMsgs\nTotal Kata: $totalWords\nEstimasi Token: ~$totalTokens'),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))],
+      ),
+    );
+  }
+
+  void _backupChats() async {
+    if (_sessions.isEmpty) return;
+    String jsonStr = jsonEncode(_sessions.map((s) => s.toJson()).toList());
+    await Clipboard.setData(ClipboardData(text: jsonStr));
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Backup disalin ke Clipboard!')));
+  }
+
+  void _restoreChats() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data != null && data.text != null) {
+      try {
+        final List<dynamic> decoded = jsonDecode(data.text!);
+        setState(() {
+          _sessions = decoded.map((e) => ChatSession.fromJson(e)).toList();
+          if (_sessions.isNotEmpty) _currentSession = _sessions.first;
+        });
+        _storageService.saveSessions(_sessions);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Restore berhasil!')));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Format backup tidak valid.')));
+      }
+    }
+  }
+
   Future<void> _sendMessage({String? text}) async {
     final messageText = text ?? _controller.text.trim();
     if (messageText.isEmpty && _pickedImage == null || _currentSession == null) return;
@@ -282,6 +340,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _haptic();
     String finalText = messageText.startsWith('/image ') ? '$messageText --ratio $_selectedRatio' : messageText;
+    if (_quotedMessage.isNotEmpty) {
+      finalText = "> $quotedMessage\n\n$finalText";
+      _quotedMessage = '';
+    }
+
     String displayContent = finalText;
     dynamic apiContent = finalText;
 
@@ -304,6 +367,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _controller.clear();
     _saveDraft('');
     _storageService.saveSessions(_sessions);
+    if (_isAutoScroll) _scrollToBottom();
 
     final apiMessages = _currentSession!.messages.map((m) => {'role': m['role'], 'content': m['raw_api_content'] ?? m['content']}).toList();
     final reply = await _aiService.sendMessage(apiMessages, _currentSession!);
@@ -313,47 +377,21 @@ class _ChatScreenState extends State<ChatScreen> {
       _isLoading = false;
     });
     _storageService.saveSessions(_sessions);
+    if (_isAutoScroll) _scrollToBottom();
 
     if (_isAutoTts && !reply.startsWith('Error')) _speak(reply);
   }
 
-  void _continueGenerating() async {
-    _sendMessage(text: "Lanjutkan jawabanmu yang terpotong sebelumnya.");
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+    });
   }
 
-  void _editMessage(int index) {
-    _controller.text = _currentSession!.messages[index]['content'];
-    _currentSession!.messages.removeRange(index, _currentSession!.messages.length);
-    setState(() {});
-  }
-
-  void _pinMessage(int index) {
-    final msg = _currentSession!.messages.removeAt(index);
-    _currentSession!.messages.insert(0, msg);
-    setState(() {});
-    _storageService.saveSessions(_sessions);
-  }
-
-  void _forkChat(int index) {
-    final newId = DateTime.now().millisecondsSinceEpoch.toString();
-    final newSession = ChatSession(
-      id: newId, title: 'Fork: ${_currentSession!.title}', messages: _currentSession!.messages.sublist(0, index + 1), modelId: _currentSession!.modelId,
-    );
-    setState(() { _sessions.insert(0, newSession); _currentSession = newSession; });
-    _storageService.saveSessions(_sessions);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat berhasil di-fork!')));
-  }
-
-  Future<void> _exportChat() async {
+  void _summarizeChat() {
     if (_currentSession == null || _currentSession!.messages.isEmpty) return;
-    String text = "# ${_currentSession!.title}\n\n";
-    for (var msg in _currentSession!.messages) { text += msg['role'] == 'user' ? "### User\n" : "### AI\n"; text += "${msg['content']}\n\n---\n\n"; }
-    try {
-      final directory = await getTemporaryDirectory();
-      final file = File('${directory.path}/Wenkikly_${_currentSession!.id}.md');
-      await file.writeAsString(text);
-      await Share.shareXFiles([XFile(file.path)], text: 'Ekspor Chat Wenkikly (Markdown)');
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
+    String chatHistory = _currentSession!.messages.map((m) => "${m['role']}: ${m['content']}").join('\n');
+    _sendMessage(text: "Tolong rangkum percakapan berikut menjadi poin-poin penting:\n\n$chatHistory");
   }
 
   void _showLimitDialog() {
@@ -395,21 +433,46 @@ class _ChatScreenState extends State<ChatScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     int totalTokens = 0;
     if (_currentSession != null) { for (var msg in _currentSession!.messages) { totalTokens += ((msg['content']?.toString().length ?? 0) / 4).ceil(); } }
+    
+    // Cek Warna Bubble
+    Color userBubbleColor = const Color(0xFF673AB7);
+    Color aiBubbleColor = isDark ? const Color(0xFF2C2C2C) : Colors.grey[200]!;
 
     return Scaffold(
       appBar: _isZenMode ? null : AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(widget.appTitle, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
-            Text('${_selectedModel.name} • ~$totalTokens tk', style: const TextStyle(fontSize: 12, color: Colors.deepPurpleAccent)),
-          ],
+        title: GestureDetector(
+          onLongPress: _showModelSelector,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(widget.appTitle, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
+              Text('${_selectedModel.name} • ~$totalTokens tk', style: const TextStyle(fontSize: 12, color: Colors.deepPurpleAccent)),
+            ],
+          ),
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.ios_share), onPressed: _exportChat),
-          IconButton(icon: const Icon(Icons.add_comment_outlined), onPressed: _createNewSession),
-          IconButton(icon: const Icon(Icons.swap_horiz), onPressed: _showModelSelector),
-          IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(onThemeChanged: widget.onThemeChanged, onBiometricChanged: widget.onBiometricChanged, onLanguageChanged: widget.onLanguageChanged, onFontSizeChanged: widget.onFontSizeChanged))).then((_) => _loadSettings())),
+          IconButton(icon: const Icon(Icons.search), tooltip: 'Cari di Chat', onPressed: () => showSearch(context: context, delegate: _ChatSearchDelegate(_currentSession!.messages))),
+          IconButton(icon: const Icon(Icons.summarize), tooltip: 'Rangkum Chat', onPressed: _summarizeChat),
+          IconButton(icon: const Icon(Icons.add_comment_outlined), tooltip: 'Chat Baru', onPressed: _createNewSession),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (val) {
+              if (val == 'export') _exportChat();
+              if (val == 'stats') _showChatStats();
+              if (val == 'backup') _backupChats();
+              if (val == 'restore') _restoreChats();
+              if (val == 'clear') _clearCurrentChat();
+              if (val == 'settings') Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(onThemeChanged: widget.onThemeChanged, onBiometricChanged: widget.onBiometricChanged, onLanguageChanged: widget.onLanguageChanged, onFontSizeChanged: widget.onFontSizeChanged))).then((_) => _loadSettings());
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'export', child: Text('Ekspor Chat (MD)')),
+              const PopupMenuItem(value: 'stats', child: Text('Statistik Chat')),
+              const PopupMenuItem(value: 'backup', child: Text('Backup ke Clipboard')),
+              const PopupMenuItem(value: 'restore', child: Text('Restore dari Clipboard')),
+              const PopupMenuItem(value: 'clear', child: Text('Hapus Isi Chat Ini')),
+              const PopupMenuItem(value: 'settings', child: Text('Pengaturan')),
+            ],
+          ),
         ],
       ),
       drawer: Drawer(
@@ -482,7 +545,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                   final isUser = msg['role'] == 'user';
                                   final isLastMessage = index == _currentSession!.messages.length - 1;
                                   
-                                  // FITUR: Format Jam 12/24
                                   DateTime dt = DateTime.parse(msg['timestamp'] ?? DateTime.now().toIso8601String());
                                   final timeStr = _timeFormat == '12h' ? DateFormat('hh:mm a').format(dt) : DateFormat('HH:mm').format(dt);
                                   final wordCount = msg['content'].toString().split(' ').length;
@@ -490,54 +552,50 @@ class _ChatScreenState extends State<ChatScreen> {
                                   
                                   return Align(
                                     alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-                                    child: Container(
-                                      margin: const EdgeInsets.symmetric(vertical: 6), padding: const EdgeInsets.all(12),
-                                      constraints: BoxConstraints(maxWidth: _isFullWidth ? MediaQuery.of(context).size.width * 0.95 : MediaQuery.of(context).size.width * 0.85),
-                                      decoration: BoxDecoration(
-                                        color: isUser ? Colors.deepPurple.shade700 : (isDark ? const Color(0xFF2C2C2C) : Colors.grey[200]),
-                                        borderRadius: BorderRadius.only(topLeft: const Radius.circular(16), topRight: const Radius.circular(16), bottomLeft: isUser ? const Radius.circular(16) : Radius.zero, bottomRight: isUser ? Radius.zero : const Radius.circular(16)),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          if (isImageUrl)
-                                            ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(msg['content']!.split('(')[1].split(')')[0], fit: BoxFit.cover))
-                                          else if (isUser) 
-                                            SelectableText(msg['content']!, style: TextStyle(fontSize: widget.fontSize, color: isDark ? Colors.white : Colors.black87))
-                                          else
-                                            MarkdownBody(
-                                                data: msg['content']!,
-                                                styleSheet: MarkdownStyleSheet(p: TextStyle(fontSize: widget.fontSize, color: isDark ? Colors.white : Colors.black87)),
-                                                builders: {'code': HighlightCodeBuilder()},
-                                              ),
-                                          const SizedBox(height: 8),
-                                          Row(
-                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                            children: [
-                                              Text('$timeStr • $wordCount kata', style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                                              // FITUR: Long Press Context Menu
-                                              PopupMenuButton<String>(
-                                                icon: const Icon(Icons.more_horiz, size: 20, color: Colors.grey),
-                                                onSelected: (val) {
-                                                  if (val == 'copy') { Clipboard.setData(ClipboardData(text: msg['content']!)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disalin'))); }
-                                                  if (val == 'share') { Share.share(msg['content']!); }
-                                                  if (val == 'fork') { _forkChat(index); }
-                                                  if (val == 'edit') { _editMessage(index); }
-                                                  if (val == 'pin') { _pinMessage(index); }
-                                                  if (val == 'speak') { _speak(msg['content']!); }
-                                                },
-                                                itemBuilder: (context) => [
-                                                  const PopupMenuItem(value: 'copy', child: Text('Copy')),
-                                                  const PopupMenuItem(value: 'share', child: Text('Share Single')),
-                                                  if (!isUser) const PopupMenuItem(value: 'speak', child: Text('Bacakan (TTS)')),
-                                                  const PopupMenuItem(value: 'fork', child: Text('Fork Chat Here')),
-                                                  if (!isUser) const PopupMenuItem(value: 'pin', child: Text('Pin Message')),
-                                                  if (isUser) const PopupMenuItem(value: 'edit', child: Text('Edit Message')),
-                                                ],
-                                              ),
-                                            ],
-                                          )
-                                        ],
+                                    child: GestureDetector(
+                                      onLongPress: () => setState(() => _quotedMessage = msg['content']),
+                                      child: Container(
+                                        margin: const EdgeInsets.symmetric(vertical: 6), padding: const EdgeInsets.all(12),
+                                        constraints: BoxConstraints(maxWidth: _isFullWidth ? MediaQuery.of(context).size.width * 0.95 : MediaQuery.of(context).size.width * 0.85),
+                                        decoration: BoxDecoration(
+                                          color: isUser ? Colors.deepPurple.shade700 : (isDark ? const Color(0xFF2C2C2C) : Colors.grey[200]),
+                                          borderRadius: BorderRadius.only(topLeft: const Radius.circular(16), topRight: const Radius.circular(16), bottomLeft: isUser ? const Radius.circular(16) : Radius.zero, bottomRight: isUser ? Radius.zero : const Radius.circular(16)),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            if (isImageUrl)
+                                              ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(msg['content']!.split('(')[1].split(')')[0], fit: BoxFit.cover))
+                                            else if (isUser) 
+                                              SelectableText(msg['content']!, style: TextStyle(fontSize: widget.fontSize, color: isDark ? Colors.white : Colors.black87))
+                                            else
+                                              MarkdownBody(
+                                                  data: msg['content']!,
+                                                  styleSheet: MarkdownStyleSheet(p: TextStyle(fontSize: widget.fontSize, color: isDark ? Colors.white : Colors.black87)),
+                                                  builders: {'code': HighlightCodeBuilder(onExplain: (code) => _sendMessage(text: "Jelaskan kode berikut secara detail:\n\n$code"))},
+                                                ),
+                                            const SizedBox(height: 8),
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Text('$timeStr • $wordCount kata', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                                                PopupMenuButton<String>(
+                                                  icon: const Icon(Icons.more_horiz, size: 20, color: Colors.grey),
+                                                  onSelected: (val) {
+                                                    if (val == 'copy') { Clipboard.setData(ClipboardData(text: msg['content']!)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disalin'))); }
+                                                    if (val == 'share') { Share.share(msg['content']!); }
+                                                    if (val == 'speak') { _speak(msg['content']!); }
+                                                  },
+                                                  itemBuilder: (context) => [
+                                                    const PopupMenuItem(value: 'copy', child: Text('Copy')),
+                                                    const PopupMenuItem(value: 'share', child: Text('Share')),
+                                                    if (!isUser) const PopupMenuItem(value: 'speak', child: Text('Bacakan (TTS)')),
+                                                  ],
+                                                ),
+                                              ],
+                                            )
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   );
@@ -547,9 +605,6 @@ class _ChatScreenState extends State<ChatScreen> {
                       if (_isLoading)
                         Padding(padding: const EdgeInsets.all(8.0), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepPurpleAccent)), const SizedBox(width: 12), const Text('Wenkikly sedang mengetik...', style: TextStyle(color: Colors.grey, fontSize: 12))])),
                       
-                      if (!_isLoading && _currentSession!.messages.isNotEmpty && _currentSession!.messages.last['role'] == 'assistant')
-                        TextButton.icon(onPressed: _continueGenerating, icon: const Icon(Icons.arrow_downward, size: 16), label: const Text('Lanjutkan Generate')),
-                      
                       if (!_isZenMode)
                         Container(
                           padding: const EdgeInsets.all(12),
@@ -557,6 +612,17 @@ class _ChatScreenState extends State<ChatScreen> {
                           child: SafeArea(
                             child: Column(
                               children: [
+                                if (_quotedMessage.isNotEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 8),
+                                    decoration: BoxDecoration(color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[300], border: const Border(left: BorderSide(color: Colors.deepPurple, width: 4))),
+                                    child: Row(
+                                      children: [
+                                        Expanded(child: Text(_quotedMessage, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic))),
+                                        IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => setState(() => _quotedMessage = '')),
+                                      ],
+                                    ),
+                                  ),
                                 if (_pickedImage != null)
                                   Stack(
                                     children: [
@@ -595,6 +661,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   if (_showScrollToTop)
                     Positioned(bottom: 80, right: 16, child: FloatingActionButton.small(backgroundColor: Colors.deepPurple, onPressed: _scrollToTop, child: const Icon(Icons.arrow_upward, color: Colors.white))),
+                  Positioned(bottom: 80, left: 16, child: FloatingActionButton.small(backgroundColor: Colors.deepPurple, onPressed: _createNewSession, child: const Icon(Icons.add, color: Colors.white))),
                 ],
               ),
             ),
@@ -603,16 +670,68 @@ class _ChatScreenState extends State<ChatScreen> {
 }
 
 class HighlightCodeBuilder extends MarkdownElementBuilder {
+  final Function(String) onExplain;
+  HighlightCodeBuilder({required this.onExplain});
+
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
     var language = '';
     if (element.attributes['class'] != null) language = element.attributes['class']!.substring(9);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: HighlightView(
-        element.textContent, language: language.isEmpty ? 'plaintext' : language, theme: vs2015Theme,
-        padding: const EdgeInsets.all(12), textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: const BoxDecoration(color: Color(0xFF1E1E1E), borderRadius: BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8))),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(language.toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.grey)),
+              InkWell(
+                onTap: () => onExplain(element.textContent),
+                child: const Row(children: [Icon(Icons.lightbulb, size: 14, color: Colors.amberAccent), SizedBox(width: 4), Text('Explain', style: TextStyle(fontSize: 10, color: Colors.amberAccent))]),
+              ),
+            ],
+          ),
+        ),
+        ClipRRect(
+          borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(8), bottomRight: Radius.circular(8)),
+          child: HighlightView(
+            element.textContent, language: language.isEmpty ? 'plaintext' : language, theme: vs2015Theme,
+            padding: const EdgeInsets.all(12), textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChatSearchDelegate extends SearchDelegate {
+  final List<Map<String, dynamic>> messages;
+  _ChatSearchDelegate(this.messages);
+
+  @override
+  List<Widget>? buildActions(BuildContext context) => [IconButton(icon: const Icon(Icons.clear), onPressed: () => query = '')];
+
+  @override
+  Widget? buildLeading(BuildContext context) => IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => close(context, null));
+
+  @override
+  Widget buildResults(BuildContext context) => _buildList();
+  @override
+  Widget buildSuggestions(BuildContext context) => _buildList();
+
+  Widget _buildList() {
+    final results = messages.where((m) => m['content'].toString().toLowerCase().contains(query.toLowerCase())).toList();
+    return ListView.builder(
+      itemCount: results.length,
+      itemBuilder: (context, index) {
+        final msg = results[index];
+        return ListTile(
+          leading: Icon(msg['role'] == 'user' ? Icons.person : Icons.smart_toy),
+          title: Text(msg['content'].toString(), maxLines: 3, overflow: TextOverflow.ellipsis),
+        );
+      },
     );
   }
 }

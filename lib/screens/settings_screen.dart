@@ -28,11 +28,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isHapticsEnabled = true;
   bool _hideTokensGlobal = false;
   bool _isFullWidth = false;
+  bool _isAutoScroll = true;
   
   double _temperature = 0.7;
   double _ttsRate = 0.5;
   double _fontSize = 15.0;
   int _accentColorValue = 0xFF673AB7;
+  int _userBubbleColorValue = 0xFF673AB7;
+  int _aiBubbleColorValue = 0xFF2C2C2C;
   int _networkTimeout = 60;
   String _selectedPersona = 'default';
   String _appLanguage = 'id';
@@ -46,6 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   };
 
   final List<Color> _accentColors = [Colors.deepPurple, Colors.blue, Colors.green, Colors.orange, Colors.red, Colors.teal];
+  final List<Color> _bubbleColors = [Colors.deepPurple, Colors.blue, Colors.green, Colors.grey, Colors.brown, Colors.black];
 
   @override
   void initState() {
@@ -66,10 +70,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _isHapticsEnabled = prefs.getBool('haptics_enabled') ?? true;
       _hideTokensGlobal = prefs.getBool('hide_tokens_global') ?? false;
       _isFullWidth = prefs.getBool('is_full_width') ?? false;
+      _isAutoScroll = prefs.getBool('is_auto_scroll') ?? true;
       _temperature = prefs.getDouble('temperature') ?? 0.7;
       _ttsRate = prefs.getDouble('tts_rate') ?? 0.5;
       _fontSize = prefs.getDouble('font_size') ?? 15.0;
       _accentColorValue = prefs.getInt('accent_color') ?? 0xFF673AB7;
+      _userBubbleColorValue = prefs.getInt('user_bubble_color') ?? 0xFF673AB7;
+      _aiBubbleColorValue = prefs.getInt('ai_bubble_color') ?? 0xFF2C2C2C;
       _networkTimeout = prefs.getInt('network_timeout') ?? 60;
       _appLanguage = prefs.getString('app_language') ?? 'id';
       _sttLanguage = prefs.getString('stt_language') ?? 'id';
@@ -92,10 +99,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setBool('haptics_enabled', _isHapticsEnabled);
     await prefs.setBool('hide_tokens_global', _hideTokensGlobal);
     await prefs.setBool('is_full_width', _isFullWidth);
+    await prefs.setBool('is_auto_scroll', _isAutoScroll);
     await prefs.setDouble('temperature', _temperature);
     await prefs.setDouble('tts_rate', _ttsRate);
     await prefs.setDouble('font_size', _fontSize);
     await prefs.setInt('accent_color', _accentColorValue);
+    await prefs.setInt('user_bubble_color', _userBubbleColorValue);
+    await prefs.setInt('ai_bubble_color', _aiBubbleColorValue);
     await prefs.setInt('network_timeout', _networkTimeout);
     await prefs.setString('app_language', _appLanguage);
     await prefs.setString('stt_language', _sttLanguage);
@@ -138,6 +148,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SwitchListTile(title: const Text('Getaran (Haptics)'), value: _isHapticsEnabled, activeColor: Color(_accentColorValue), onChanged: (val) => setState(() => _isHapticsEnabled = val)),
           SwitchListTile(title: const Text('Sembunyikan Token Global'), value: _hideTokensGlobal, activeColor: Color(_accentColorValue), onChanged: (val) => setState(() => _hideTokensGlobal = val)),
           SwitchListTile(title: const Text('Bubble Chat Full-Width'), value: _isFullWidth, activeColor: Color(_accentColorValue), onChanged: (val) => setState(() => _isFullWidth = val)),
+          SwitchListTile(title: const Text('Auto-Scroll ke Bawah'), value: _isAutoScroll, activeColor: Color(_accentColorValue), onChanged: (val) => setState(() => _isAutoScroll = val)),
           
           const Divider(height: 30, color: Colors.white24),
           const Text('Tampilan & Waktu', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -150,6 +161,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Text('Ukuran Font Chat', style: TextStyle(fontSize: 12, color: Colors.grey)),
           Slider(value: _fontSize, min: 12.0, max: 20.0, divisions: 8, label: _fontSize.toStringAsFixed(1), activeColor: Color(_accentColorValue), onChanged: (val) => setState(() => _fontSize = val)),
           
+          const Divider(height: 30, color: Colors.white24),
+          const Text('Warna Tema Aplikasi', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 12, children: _accentColors.map((color) => GestureDetector(onTap: () => setState(() => _accentColorValue = color.value), child: CircleAvatar(backgroundColor: color, radius: 20, child: _accentColorValue == color.value ? const Icon(Icons.check, color: Colors.white, size: 20) : null))).toList()),
+          
+          const SizedBox(height: 16),
+          const Text('Warna Bubble User & AI', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Text('User: '), ..._bubbleColors.map((color) => GestureDetector(onTap: () => setState(() => _userBubbleColorValue = color.value), child: Container(margin: const EdgeInsets.only(right: 8), width: 24, height: 24, decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: _userBubbleColorValue == color.value ? Border.all(color: Colors.white, width: 2) : null)))),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Text('AI: '), ..._bubbleColors.map((color) => GestureDetector(onTap: () => setState(() => _aiBubbleColorValue = color.value), child: Container(margin: const EdgeInsets.only(right: 8), width: 24, height: 24, decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: _aiBubbleColorValue == color.value ? Border.all(color: Colors.white, width: 2) : null)))),
+            ],
+          ),
+
           const Divider(height: 30, color: Colors.white24),
           const Text('Suara & Bahasa', style: TextStyle(fontWeight: FontWeight.bold)),
           DropdownButtonFormField<String>(
@@ -168,11 +199,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Slider(value: _networkTimeout.toDouble(), min: 10, max: 180, divisions: 17, label: '$_networkTimeout s', activeColor: Color(_accentColorValue), onChanged: (val) => setState(() => _networkTimeout = val.toInt())),
           TextField(controller: _apiKeyController, obscureText: true, decoration: const InputDecoration(labelText: 'API Key (OpenRouter)')),
           
-          const Divider(height: 30, color: Colors.white24),
-          const Text('Warna Tema', style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Wrap(spacing: 12, children: _accentColors.map((color) => GestureDetector(onTap: () => setState(() => _accentColorValue = color.value), child: CircleAvatar(backgroundColor: color, radius: 20, child: _accentColorValue == color.value ? const Icon(Icons.check, color: Colors.white, size: 20) : null))).toList()),
-
           const Divider(height: 30, color: Colors.white24),
           const Text('Persona Default (System Prompt)', style: TextStyle(fontWeight: FontWeight.bold)),
           DropdownButtonFormField<String>(value: _selectedPersona == 'custom' ? null : _selectedPersona, items: _personas.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.key == 'default' ? 'Default' : e.key.toUpperCase()))).toList(), onChanged: (val) { if (val != null) { setState(() { _selectedPersona = val; _systemPromptController.text = _personas[val] ?? ''; }); } }),
