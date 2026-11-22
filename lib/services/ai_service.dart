@@ -22,7 +22,6 @@ class AIService {
     final prefs = await SharedPreferences.getInstance();
     final systemPrompt = prefs.getString('system_prompt') ?? '';
 
-    // Menyisipkan System Prompt ke dalam percakapan
     List<Map<String, String>> finalMessages = [];
     if (systemPrompt.isNotEmpty) {
       finalMessages.add({'role': 'system', 'content': systemPrompt});
@@ -45,11 +44,15 @@ class AIService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['choices'][0]['message']['content'] ?? 'Tidak ada respons.';
+      } else if (response.statusCode == 401) {
+        return 'Error 401: API Key tidak valid atau sudah kedaluwarsa. Cek di menu Settings.';
+      } else if (response.statusCode == 429) {
+        return 'Error 429: Terlalu banyak permintaan (Rate Limit). Tunggu sebentar lalu coba lagi.';
       } else {
         return 'Error ${response.statusCode}: ${response.body}';
       }
     } catch (e) {
-      return 'Gagal terhubung ke server AI: $e';
+      return 'Gagal terhubung ke server AI. Periksa koneksi internet Anda.';
     }
   }
 

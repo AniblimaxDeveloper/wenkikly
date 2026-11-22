@@ -161,6 +161,22 @@ class _ChatScreenState extends State<ChatScreen> {
     _storageService.saveSessions(_sessions);
   }
 
+  // FITUR BARU: Hapus Sesi Chat Spesifik
+  void _deleteSession(String id) {
+    setState(() {
+      _sessions.removeWhere((s) => s.id == id);
+      if (_currentSession?.id == id) {
+        if (_sessions.isNotEmpty) {
+          _currentSession = _sessions.first;
+          _selectedModel = wenkiklyModels.firstWhere((m) => m.id == _currentSession!.modelId, orElse: () => wenkiklyModels[0]);
+        } else {
+          _createNewSession();
+        }
+      }
+    });
+    _storageService.saveSessions(_sessions);
+  }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -199,6 +215,28 @@ class _ChatScreenState extends State<ChatScreen> {
     _storageService.saveSessions(_sessions);
   }
 
+  // FITUR BARU: Regenerate Jawaban AI
+  void _regenerateResponse() async {
+    if (_currentSession == null || _currentSession!.messages.isEmpty) return;
+    
+    if (_currentSession!.messages.last['role'] == 'assistant') {
+      setState(() {
+        _currentSession!.messages.removeLast();
+        _isLoading = true;
+      });
+      _storageService.saveSessions(_sessions);
+
+      final reply = await _aiService.sendMessage(_currentSession!.messages, _selectedModel.id);
+
+      setState(() {
+        _currentSession!.messages.add({'role': 'assistant', 'content': reply});
+        _isLoading = false;
+      });
+      _scrollToBottom();
+      _storageService.saveSessions(_sessions);
+    }
+  }
+
   void _exportChat() {
     if (_currentSession == null || _currentSession!.messages.isEmpty) return;
     String text = "Wenkikly AI - ${_currentSession!.title}\n\n";
@@ -220,7 +258,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  // ... (Fungsi _showModelSelector() tetap sama persis seperti sebelumnya)
   void _showModelSelector() {
     showModalBottomSheet(
       context: context,
@@ -313,6 +350,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     title: Text(session.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                     selected: session.id == _currentSession?.id,
                     selectedTileColor: Colors.deepPurple.withOpacity(0.2),
+                    // FITUR BARU: Tombol Hapus Spesifik di Drawer
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                      onPressed: () => _deleteSession(session.id),
+                    ),
                     onTap: () {
                       setState(() {
                         _currentSession = session;
@@ -342,9 +384,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                   children: [
                                     Icon(Icons.auto_awesome, size: 64, color: Colors.deepPurple.withOpacity(0.5)),
                                     const SizedBox(height: 16),
-                                    Text('Mulai percakapan dengan ${_selectedModel.name}', style: const TextStyle(color: Colors.grey)),
+                                    Text('Mulai percakapan dengan ${_selectedModel.name}', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)),
                                     const SizedBox(height: 24),
-                                    // FITUR BARU: Quick Prompts
                                     Wrap(
                                       spacing: 8,
                                       runSpacing: 8,
@@ -367,6 +408,8 @@ class _ChatScreenState extends State<ChatScreen> {
                               itemBuilder: (context, index) {
                                 final msg = _currentSession!.messages[index];
                                 final isUser = msg['role'] == 'user';
+                                final isLastMessage = index == _currentSession!.messages.length - 1;
+                                
                                 return Align(
                                   alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
                                   child: Container(
@@ -391,7 +434,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                               data: msg['content']!,
                                               styleSheet: MarkdownStyleSheet(
                                                 p: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87),
-                                                code: const TextStyle(backgroundColor: Colors.black45, color: Colors.greenAccent),
+                                                code: const TextStyle(backgroundColor: Colors.black45, color: Colors.greenAccent, fontFamily: 'monospace'),
+                                                codeblockDecoration: BoxDecoration(
+                                                  color: Colors.black87,
+                                                  borderRadius: BorderRadius.circular(8),
+                                                ),
                                               ),
                                             ),
                                         const SizedBox(height: 8),
@@ -400,6 +447,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                           children: [
                                             if (!isUser) ...[
                                               IconButton(icon: const Icon(Icons.volume_up, size: 16, color: Colors.grey), onPressed: () => _speak(msg['content']!)),
+                                              const SizedBox(width: 8),
+                                              // FITUR BARU: Regenerate (Hanya di pesan terakhir AI)
+                                              if (isLastMessage)
+                                                IconButton(icon: const Icon(Icons.refresh, size: 16, color: Colors.deepPurpleAccent), onPressed: _regenerateResponse),
                                               const SizedBox(width: 8),
                                             ],
                                             IconButton(
@@ -451,6 +502,11 @@ class _ChatScreenState extends State<ChatScreen> {
                               child: TextField(
                                 controller: _controller,
                                 style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                                maxLength: 4000,
+                                buildCounter: (context, {required currentLength, required isFocused, maxLength}) {
+                                  // FITUR BARU: Karakter Counter
+                                  return Text('$currentLength/$maxLength', style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : Colors.black38));
+                                },
                                 decoration: InputDecoration(
                                   hintText: _isListening ? 'Mendengarkan...' : 'Tanya ${_selectedModel.name}...',
                                   hintStyle: TextStyle(color: _isListening ? Colors.redAccent : (isDark ? Colors.white54 : Colors.black54)),
@@ -476,7 +532,6 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ],
                 ),
-                // FITUR BARU: Scroll to Bottom Button
                 if (_showScrollToBottom)
                   Positioned(
                     bottom: 80,

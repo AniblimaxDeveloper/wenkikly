@@ -13,6 +13,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _systemPromptController = TextEditingController();
   bool _isDarkMode = true;
+  String _selectedPersona = 'default';
+
+  final Map<String, String> _personas = {
+    'default': '',
+    'programmer': 'Kamu adalah programmer senior. Jawab dengan kode yang bersih, efisien, dan berikan penjelasan singkat.',
+    'writer': 'Kamu adalah penulis kreatif profesional. Gunakan bahasa yang indah, imajinatif, dan menarik.',
+    'teacher': 'Kamu adalah guru yang sabar dan pintar. Jelaskan konsep rumit dengan analogi sederhana yang mudah dipahami.',
+    'translator': 'Kamu adalah penerjemah bahasa profesional. Terjemahkan teks dengan akurat sesuai konteks budaya.',
+  };
 
   @override
   void initState() {
@@ -26,6 +35,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _apiKeyController.text = prefs.getString('custom_api_key') ?? '';
       _systemPromptController.text = prefs.getString('system_prompt') ?? '';
       _isDarkMode = prefs.getBool('is_dark_mode') ?? true;
+      
+      // Cek apakah prompt saat ini cocok dengan preset
+      final currentPrompt = _systemPromptController.text;
+      _selectedPersona = _personas.entries.firstWhere(
+        (e) => e.value == currentPrompt, 
+        orElse: () => const MapEntry('custom', ''),
+      ).key;
     });
   }
 
@@ -37,7 +53,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     
     widget.onThemeChanged(_isDarkMode);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pengaturan disimpan!')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pengaturan berhasil disimpan!')));
       Navigator.pop(context);
     }
   }
@@ -46,7 +62,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('wenkikly_sessions');
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Semua riwayat chat dihapus.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Semua riwayat chat telah dihapus.')));
     }
   }
 
@@ -65,21 +81,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (val) => setState(() => _isDarkMode = val),
           ),
           const Divider(height: 30, color: Colors.white24),
-          const Text('System Prompt (Persona AI)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          
+          const Text('Persona AI (System Prompt)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 8),
-          const Text('Beri tahu AI siapa dirinya. Contoh: "Kamu adalah programmer senior yang menjawab dengan singkat."', style: TextStyle(color: Colors.white54, fontSize: 12)),
+          DropdownButtonFormField<String>(
+            value: _selectedPersona == 'custom' ? null : _selectedPersona,
+            hint: const Text('Pilih Persona...'),
+            items: _personas.entries.map((e) {
+              return DropdownMenuItem(
+                value: e.key,
+                child: Text(e.key == 'default' ? 'Default (Tanpa Persona)' : e.key.toUpperCase()),
+              );
+            }).toList(),
+            onChanged: (val) {
+              if (val != null) {
+                setState(() {
+                  _selectedPersona = val;
+                  _systemPromptController.text = _personas[val] ?? '';
+                });
+              }
+            },
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _systemPromptController,
             maxLines: 3,
             decoration: InputDecoration(
-              hintText: 'Contoh: Kamu adalah guru matematika yang sabar...',
+              hintText: 'Atau ketik instruksi kustom di sini...',
               filled: true,
               fillColor: const Color(0xFF2C2C2C),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
             ),
           ),
-          const SizedBox(height: 20),
+          
+          const Divider(height: 30, color: Colors.white24),
           const Text('API Key OpenRouter', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 8),
           TextField(
@@ -98,6 +133,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, padding: const EdgeInsets.symmetric(vertical: 16)),
             child: const Text('Simpan Semua Pengaturan'),
           ),
+          
           const Divider(height: 40, color: Colors.white24),
           OutlinedButton(
             onPressed: _clearHistory,
