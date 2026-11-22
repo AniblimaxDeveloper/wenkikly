@@ -15,7 +15,7 @@ class AIService {
 
   Future<String> sendMessage(List<Map<String, dynamic>> messages, String modelId) async {
     final apiKey = await _getApiKey();
-    if (apiKey.isEmpty) return 'Error: API Key tidak ditemukan.';
+    if (apiKey.isEmpty) return 'Error: API Key tidak ditemukan. Buka Settings.';
 
     final prefs = await SharedPreferences.getInstance();
     final systemPrompt = prefs.getString('system_prompt') ?? '';
@@ -23,8 +23,14 @@ class AIService {
 
     final lastContent = messages.last['content'];
     if (lastContent is String && lastContent.startsWith('/image ')) {
-      final prompt = lastContent.replaceFirst('/image ', '');
-      final imageUrl = 'https://image.pollinations.ai/prompt/${Uri.encodeComponent(prompt)}?width=1024&height=1024&nologo=true';
+      final parts = lastContent.replaceFirst('/image ', '').split(' --ratio ');
+      final prompt = parts[0];
+      String ratio = '1024x1024';
+      if (parts.length > 1) {
+        if (parts[1] == '16:9') ratio = '1024x576';
+        if (parts[1] == '9:16') ratio = '576x1024';
+      }
+      final imageUrl = 'https://image.pollinations.ai/prompt/${Uri.encodeComponent(prompt)}?width=${ratio.split('x')[0]}&height=${ratio.split('x')[1]}&nologo=true';
       return '![Gambar AI]($imageUrl)';
     }
 
@@ -45,7 +51,7 @@ class AIService {
       } else if (response.statusCode == 401) {
         return 'Error 401: API Key tidak valid.';
       } else if (response.statusCode == 429) {
-        return 'Error 429: Rate Limit. Tunggu sebentar.';
+        return 'Error 429: Rate Limit.';
       } else {
         return 'Error ${response.statusCode}: ${response.body}';
       }
@@ -54,7 +60,6 @@ class AIService {
     }
   }
 
-  // FITUR BARU: Prompt Enhancer
   Future<String> enhancePrompt(String prompt) async {
     final apiKey = await _getApiKey();
     if (apiKey.isEmpty) return prompt;
@@ -66,7 +71,7 @@ class AIService {
         body: jsonEncode({
           'model': 'meta-llama/llama-3.1-8b-instruct',
           'messages': [
-            {'role': 'system', 'content': 'You are an expert prompt engineer. Rewrite the user input to be a highly detailed, professional, and effective prompt for an AI. Output ONLY the rewritten prompt, no extra text.'},
+            {'role': 'system', 'content': 'Rewrite the user input to be a highly detailed, professional prompt. Output ONLY the prompt.'},
             {'role': 'user', 'content': prompt}
           ],
           'temperature': 0.7,
