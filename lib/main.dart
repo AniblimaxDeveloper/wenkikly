@@ -49,7 +49,7 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
 
   void _checkLogin() async {
     final loggedIn = await _authService.isLoggedIn();
-    setState(() => _isLoggedIn = loggedIn);
+    if (mounted) setState(() => _isLoggedIn = loggedIn);
   }
 
   @override
@@ -196,6 +196,13 @@ class _ChatScreenState extends State<ChatScreen> {
     _storageService.saveSessions(_sessions);
   }
 
+  void _clearCurrentChat() {
+    if (_currentSession != null) {
+      setState(() { _currentSession!.messages.clear(); });
+      _storageService.saveSessions(_sessions);
+    }
+  }
+
   Future<void> _enhanceCurrentPrompt() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
@@ -227,6 +234,55 @@ class _ChatScreenState extends State<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
     });
+  }
+
+  void _summarizeChat() {
+    if (_currentSession == null || _currentSession!.messages.isEmpty) return;
+    String chatHistory = _currentSession!.messages.map((m) => "${m['role']}: ${m['content']}").join('\n');
+    _sendMessage(text: "Tolong rangkum percakapan berikut menjadi poin-poin penting:\n\n$chatHistory");
+  }
+
+  void _showChatStats() {
+    if (_currentSession == null) return;
+    int totalMsgs = _currentSession!.messages.length;
+    int totalWords = 0;
+    int totalTokens = 0;
+    for (var msg in _currentSession!.messages) {
+      totalWords += msg['content'].toString().split(' ').length;
+      totalTokens += (msg['content'].toString().length / 4).ceil();
+    }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Statistik Obrolan'),
+        content: Text('Total Pesan: $totalMsgs\nTotal Kata: $totalWords\nEstimasi Token: ~$totalTokens'),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))],
+      ),
+    );
+  }
+
+  void _backupChats() async {
+    if (_sessions.isEmpty) return;
+    String jsonStr = jsonEncode(_sessions.map((s) => s.toJson()).toList());
+    await Clipboard.setData(ClipboardData(text: jsonStr));
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Backup disalin ke Clipboard!')));
+  }
+
+  void _restoreChats() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data != null && data.text != null) {
+      try {
+        final List<dynamic> decoded = jsonDecode(data.text!);
+        setState(() {
+          _sessions = decoded.map((e) => ChatSession.fromJson(e)).toList();
+          if (_sessions.isNotEmpty) _currentSession = _sessions.first;
+        });
+        _storageService.saveSessions(_sessions);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Restore berhasil!')));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Format backup tidak valid.')));
+      }
+    }
   }
 
   Future<void> _sendMessage({String? text}) async {
@@ -365,11 +421,17 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ),
         actions: [
+          IconButton(icon: const Icon(Icons.search), tooltip: 'Cari di Chat', onPressed: () => showSearch(context: context, delegate: _ChatSearchDelegate(_currentSession!.messages))),
+          IconButton(icon: const Icon(Icons.summarize), tooltip: 'Rangkum Chat', onPressed: _summarizeChat),
           IconButton(icon: const Icon(Icons.add_comment_outlined), tooltip: 'Chat Baru', onPressed: _createNewSession),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (val) {
               if (val == 'export') _exportChat();
+              if (val == 'stats') _showChatStats();
+              if (val == 'backup') _backupChats();
+              if (val == 'restore') _restoreChats();
+              if (val == 'clear') _clearCurrentChat();
               if (val == 'premium') Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentScreen(onPaymentSuccess: () { Navigator.pop(context); _loadSettings(); })));
               if (val == 'about') Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutScreen()));
               if (val == 'settings') Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(onThemeChanged: (b,c){}, onBiometricChanged: (b){}, onLanguageChanged: (s){}, onFontSizeChanged: (d){}))).then((_) => _loadSettings());
@@ -377,6 +439,11 @@ class _ChatScreenState extends State<ChatScreen> {
             },
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'export', child: Text('Ekspor Chat (MD)')),
+              const PopupMenuItem(value: 'stats', child: Text('Statistik Chat')),
+              const PopupMenuItem(value: 'backup', child: Text('Backup ke Clipboard')),
+              const PopupMenuItem(value: 'restore', child: Text('Restore dari Clipboard')),
+              const PopupMenuItem(value: 'clear', child: Text('Hapus Isi Chat Ini')),
+              const PopupMenuDivider(),
               const PopupMenuItem(value: 'premium', child: Text('Upgrade Premium')),
               const PopupMenuItem(value: 'about', child: Text('Tentang Aplikasi')),
               const PopupMenuItem(value: 'settings', child: Text('Pengaturan')),
@@ -493,7 +560,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                               MarkdownBody(
                                                   data: msg['content']!,
                                                   styleSheet: MarkdownStyleSheet(p: const TextStyle(fontSize: 15, color: Colors.white)),
-                                                  builders: {'code': HighlightCodeBuilder()},
+                                                  builders: {'code': HighlightCodeBuilder(onExplain: (code) => _sendMessage(text: "Jelaskan kode berikut secara detail:\n\n$code"))},
                                                 ),
                                             const SizedBox(height: 8),
                                             Row(
@@ -581,6 +648,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   if (_showScrollToTop)
                     Positioned(bottom: 80, right: 16, child: FloatingActionButton.small(backgroundColor: Colors.deepPurple, onPressed: _scrollToTop, child: const Icon(Icons.arrow_upward, color: Colors.white))),
+                  Positioned(bottom: 80, left: 16, child: FloatingActionButton.small(backgroundColor: Colors.deepPurple, onPressed: _createNewSession, child: const Icon(Icons.add, color: Colors.white))),
                 ],
               ),
             ),
@@ -589,19 +657,68 @@ class _ChatScreenState extends State<ChatScreen> {
 }
 
 class HighlightCodeBuilder extends MarkdownElementBuilder {
+  final Function(String) onExplain;
+  HighlightCodeBuilder({required this.onExplain});
+
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
     var language = '';
     if (element.attributes['class'] != null) language = element.attributes['class']!.substring(9);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: HighlightView(
-        element.textContent, 
-        language: language.isEmpty ? 'plaintext' : language, 
-        theme: vs2015Theme,
-        padding: const EdgeInsets.all(12), 
-        textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: const BoxDecoration(color: Color(0xFF1E1E1E), borderRadius: BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8))),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(language.toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.grey)),
+              InkWell(
+                onTap: () => onExplain(element.textContent),
+                child: const Row(children: [Icon(Icons.lightbulb, size: 14, color: Colors.amberAccent), SizedBox(width: 4), Text('Explain', style: TextStyle(fontSize: 10, color: Colors.amberAccent))]),
+              ),
+            ],
+          ),
+        ),
+        ClipRRect(
+          borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(8), bottomRight: Radius.circular(8)),
+          child: HighlightView(
+            element.textContent, language: language.isEmpty ? 'plaintext' : language, theme: vs2015Theme,
+            padding: const EdgeInsets.all(12), textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChatSearchDelegate extends SearchDelegate {
+  final List<Map<String, dynamic>> messages;
+  _ChatSearchDelegate(this.messages);
+
+  @override
+  List<Widget>? buildActions(BuildContext context) => [IconButton(icon: const Icon(Icons.clear), onPressed: () => query = '')];
+
+  @override
+  Widget? buildLeading(BuildContext context) => IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => close(context, null));
+
+  @override
+  Widget buildResults(BuildContext context) => _buildList();
+  @override
+  Widget buildSuggestions(BuildContext context) => _buildList();
+
+  Widget _buildList() {
+    final results = messages.where((m) => m['content'].toString().toLowerCase().contains(query.toLowerCase())).toList();
+    return ListView.builder(
+      itemCount: results.length,
+      itemBuilder: (context, index) {
+        final msg = results[index];
+        return ListTile(
+          leading: Icon(msg['role'] == 'user' ? Icons.person : Icons.smart_toy),
+          title: Text(msg['content'].toString(), maxLines: 3, overflow: TextOverflow.ellipsis),
+        );
+      },
     );
   }
 }
