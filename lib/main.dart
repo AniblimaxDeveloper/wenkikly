@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-// import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -29,11 +28,6 @@ import 'screens/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // try {
-    // await Firebase.initializeApp(); 
-  // } catch (e) {
-    // print("Firebase init failed. Error: $e");
-  // }
   runApp(const WenkiklyApp());
 }
 
@@ -51,11 +45,11 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
   void initState() {
     super.initState();
     _checkLogin();
-  // }
+  }
 
-  void _checkLogin() async {
+  void _checkLogin() {
     setState(() => _isLoggedIn = _authService.isLoggedIn());
-  // }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +69,7 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
         ? ChatScreen(onLogout: () { _authService.signOut(); _checkLogin(); })
         : AuthScreen(onLoginSuccess: _checkLogin),
     );
-  // }
+  }
 }
 
 class ChatScreen extends StatefulWidget {
@@ -106,8 +100,6 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isFullWidth = false;
   bool _isAutoScroll = true;
   String _timeFormat = '24h';
-  
-  // INI VARIABEL YANG TADI HILANG
   String _quotedMessage = ''; 
 
   List<ChatSession> _sessions = [];
@@ -131,7 +123,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (_scrollController.offset > 200 && !_showScrollToTop) setState(() => _showScrollToTop = true);
       if (_scrollController.offset <= 200 && _showScrollToTop) setState(() => _showScrollToTop = false);
     });
-  // }
+  }
 
   void _initTts() async => await _flutterTts.setLanguage("id-ID");
 
@@ -155,7 +147,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _createNewSession();
       }
     });
-  // }
+  }
 
   void _listen() async {
     if (!_isListening) {
@@ -168,25 +160,25 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() => _isListening = false);
       _speech.stop();
     }
-  // }
+  }
 
   void _speak(String text) async {
     String cleanText = text.replaceAll(RegExp(r'[*#`_]'), '').replaceAll(RegExp(r'!\[.*?\]\(.*?\)'), ''); 
     await _flutterTts.speak(cleanText);
-  // }
+  }
 
   void _haptic() { if (_isHaptics) HapticFeedback.lightImpact(); }
 
   Future<void> _pickImage() async {
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
     if (image != null) setState(() => _pickedImage = image);
-  // }
+  }
 
   void _createNewSession() {
     final newSession = ChatSession(id: DateTime.now().millisecondsSinceEpoch.toString(), title: 'Obrolan Baru', messages: [], modelId: _selectedModel.id);
     setState(() { _sessions.insert(0, newSession); _currentSession = newSession; _controller.clear(); _quotedMessage = ''; });
     _storageService.saveSessions(_sessions);
-  // }
+  }
 
   void _deleteSession(String id) {
     setState(() {
@@ -195,11 +187,13 @@ class _ChatScreenState extends State<ChatScreen> {
         if (_sessions.isNotEmpty) {
           _currentSession = _sessions.first;
           _selectedModel = wenkiklyModels.firstWhere((m) => m.id == _currentSession!.modelId, orElse: () => wenkiklyModels[0]);
-        } else _createNewSession();
+        } else {
+          _createNewSession();
+        }
       }
     });
     _storageService.saveSessions(_sessions);
-  // }
+  }
 
   Future<void> _enhanceCurrentPrompt() async {
     final text = _controller.text.trim();
@@ -210,7 +204,7 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() { _controller.text = enhanced; _isEnhancing = false; });
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Prompt disempurnakan!')));
     }
-  // }
+  }
 
   Future<void> _exportChat() async {
     if (_currentSession == null || _currentSession!.messages.isEmpty) return;
@@ -221,21 +215,23 @@ class _ChatScreenState extends State<ChatScreen> {
       final file = File('${directory.path}/Wenkikly_${_currentSession!.id}.md');
       await file.writeAsString(text);
       await Share.shareXFiles([XFile(file.path)], text: 'Ekspor Chat Wenkikly');
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
-  // }
+    } catch (e) { 
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); 
+    }
+  }
 
   void _scrollToTop() => _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+  
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
     });
-  // }
+  }
 
   Future<void> _sendMessage({String? text}) async {
     final messageText = text ?? _controller.text.trim();
     if (messageText.isEmpty && _pickedImage == null || _currentSession == null) return;
     
-    // Cek Limit Free vs Premium
     if (_tier == 'free' && _currentSession!.messages.length >= 10) { 
       _showLimitDialog();
       return; 
@@ -267,6 +263,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _isLoading = true;
       _pickedImage = null;
     });
+    
     _controller.clear();
     _storageService.saveSessions(_sessions);
     if (_isAutoScroll) _scrollToBottom();
@@ -278,35 +275,62 @@ class _ChatScreenState extends State<ChatScreen> {
       _currentSession!.messages.add({'role': 'assistant', 'content': reply, 'timestamp': DateTime.now().toIso8601String()});
       _isLoading = false;
     });
+    
     _storageService.saveSessions(_sessions);
     if (_isAutoScroll) _scrollToBottom();
     if (_isAutoTts && !reply.startsWith('Error')) _speak(reply);
-  // }
+  }
 
   void _showLimitDialog() {
-    showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Limit Tercapai'), content: const Text('Batas pesan paket Free habis. Ganti ke Unlimited.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]));
-  // }
+    showDialog(
+      context: context, 
+      builder: (context) => AlertDialog(
+        title: const Text('Limit Tercapai'), 
+        content: const Text('Batas pesan paket Free habis. Ganti ke Unlimited.'), 
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]
+      )
+    );
+  }
 
   void _showModelSelector() {
     showModalBottomSheet(
-      context: context, backgroundColor: Theme.of(context).scaffoldBackgroundColor, isScrollControlled: true,
+      context: context, 
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor, 
+      isScrollControlled: true,
       builder: (context) => DraggableScrollableSheet(
-        expand: false, initialChildSize: 0.7, maxChildSize: 0.9,
+        expand: false, 
+        initialChildSize: 0.7, 
+        maxChildSize: 0.9,
         builder: (context, scrollController) => Column(
           children: [
             const Padding(padding: EdgeInsets.all(16.0), child: Text('Pilih Model Wenkikly', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
             Expanded(
               child: ListView.builder(
-                controller: scrollController, itemCount: wenkiklyModels.length,
+                controller: scrollController, 
+                itemCount: wenkiklyModels.length,
                 itemBuilder: (context, index) {
                   final model = wenkiklyModels[index];
                   final isSelected = model.id == _selectedModel.id;
                   return ListTile(
                     leading: CircleAvatar(backgroundColor: isSelected ? Colors.deepPurple : Colors.grey[800], child: Icon(model.icon, color: Colors.white, size: 20)),
-                    title: Row(children: [Text(model.name, style: TextStyle(color: isSelected ? Colors.deepPurpleAccent : null, fontWeight: FontWeight.bold)), const SizedBox(width: 8), Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: model.isUnlimited ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(4)), child: Text(model.isUnlimited ? 'UNLIMITED' : 'LIMIT', style: TextStyle(fontSize: 10, color: model.isUnlimited ? Colors.green : Colors.orange, fontWeight: FontWeight.bold)))]),
+                    title: Row(
+                      children: [
+                        Text(model.name, style: TextStyle(color: isSelected ? Colors.deepPurpleAccent : null, fontWeight: FontWeight.bold)), 
+                        const SizedBox(width: 8), 
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), 
+                          decoration: BoxDecoration(color: model.isUnlimited ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(4)), 
+                          child: Text(model.isUnlimited ? 'UNLIMITED' : 'LIMIT', style: TextStyle(fontSize: 10, color: model.isUnlimited ? Colors.green : Colors.orange, fontWeight: FontWeight.bold))
+                        )
+                      ]
+                    ),
                     subtitle: Text(model.description, style: const TextStyle(fontSize: 12, color: Colors.white54)),
                     trailing: isSelected ? const Icon(Icons.check_circle, color: Colors.deepPurpleAccent) : null,
-                    onTap: () { setState(() { _selectedModel = model; _currentSession!.modelId = model.id; }); _storageService.saveSessions(_sessions); Navigator.pop(context); },
+                    onTap: () { 
+                      setState(() { _selectedModel = model; _currentSession!.modelId = model.id; }); 
+                      _storageService.saveSessions(_sessions); 
+                      Navigator.pop(context); 
+                    },
                   );
                 },
               ),
@@ -315,13 +339,17 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
-  // }
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     int totalTokens = 0;
-    if (_currentSession != null) { for (var msg in _currentSession!.messages) { totalTokens += ((msg['content']?.toString().length ?? 0) / 4).ceil(); } }
+    if (_currentSession != null) { 
+      for (var msg in _currentSession!.messages) { 
+        totalTokens += ((msg['content']?.toString().length ?? 0) / 4).ceil(); 
+      } 
+    }
 
     return Scaffold(
       appBar: _isZenMode ? null : AppBar(
@@ -383,7 +411,10 @@ class _ChatScreenState extends State<ChatScreen> {
                         selected: session.id == _currentSession?.id,
                         selectedTileColor: Colors.deepPurple.withOpacity(0.2),
                         trailing: IconButton(icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent), onPressed: () => _deleteSession(session.id)),
-                        onTap: () { setState(() { _currentSession = session; _selectedModel = wenkiklyModels.firstWhere((m) => m.id == session.modelId, orElse: () => wenkiklyModels[0]); }); Navigator.pop(context); },
+                        onTap: () { 
+                          setState(() { _currentSession = session; _selectedModel = wenkiklyModels.firstWhere((m) => m.id == session.modelId, orElse: () => wenkiklyModels[0]); }); 
+                          Navigator.pop(context); 
+                        },
                       );
                     },
                   ),
@@ -409,12 +440,24 @@ class _ChatScreenState extends State<ChatScreen> {
                                     const SizedBox(height: 16),
                                     Text('Mulai percakapan dengan ${_selectedModel.name}', style: const TextStyle(color: Colors.white54)),
                                     const SizedBox(height: 24),
-                                    Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: _quickPrompts.map((prompt) => ActionChip(label: Text(prompt, style: const TextStyle(fontSize: 12)), onPressed: () => _sendMessage(text: prompt), backgroundColor: const Color(0xFF2C2C2C), side: BorderSide.none)).toList()),
+                                    Wrap(
+                                      spacing: 8, 
+                                      runSpacing: 8, 
+                                      alignment: WrapAlignment.center, 
+                                      children: _quickPrompts.map((prompt) => ActionChip(
+                                        label: Text(prompt, style: const TextStyle(fontSize: 12)), 
+                                        onPressed: () => _sendMessage(text: prompt), 
+                                        backgroundColor: const Color(0xFF2C2C2C), 
+                                        side: BorderSide.none
+                                      )).toList()
+                                    ),
                                   ],
                                 ),
                               )
                             : ListView.builder(
-                                controller: _scrollController, padding: const EdgeInsets.all(16), itemCount: _currentSession!.messages.length,
+                                controller: _scrollController, 
+                                padding: const EdgeInsets.all(16), 
+                                itemCount: _currentSession!.messages.length,
                                 itemBuilder: (context, index) {
                                   final msg = _currentSession!.messages[index];
                                   final isUser = msg['role'] == 'user';
@@ -426,11 +469,17 @@ class _ChatScreenState extends State<ChatScreen> {
                                     child: GestureDetector(
                                       onLongPress: () => setState(() => _quotedMessage = msg['content']),
                                       child: Container(
-                                        margin: const EdgeInsets.symmetric(vertical: 6), padding: const EdgeInsets.all(12),
+                                        margin: const EdgeInsets.symmetric(vertical: 6), 
+                                        padding: const EdgeInsets.all(12),
                                         constraints: BoxConstraints(maxWidth: _isFullWidth ? MediaQuery.of(context).size.width * 0.95 : MediaQuery.of(context).size.width * 0.85),
                                         decoration: BoxDecoration(
                                           color: isUser ? Colors.deepPurple.shade700 : const Color(0xFF2C2C2C),
-                                          borderRadius: BorderRadius.only(topLeft: const Radius.circular(16), topRight: const Radius.circular(16), bottomLeft: isUser ? const Radius.circular(16) : Radius.zero, bottomRight: isUser ? Radius.zero : const Radius.circular(16)),
+                                          borderRadius: BorderRadius.only(
+                                            topLeft: const Radius.circular(16), 
+                                            topRight: const Radius.circular(16), 
+                                            bottomLeft: isUser ? const Radius.circular(16) : Radius.zero, 
+                                            bottomRight: isUser ? Radius.zero : const Radius.circular(16)
+                                          ),
                                         ),
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -442,7 +491,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                             else
                                               MarkdownBody(
                                                   data: msg['content']!,
-                                                  // FIX: Hapus 'const' dari MarkdownStyleSheet
                                                   styleSheet: MarkdownStyleSheet(p: const TextStyle(fontSize: 15, color: Colors.white)),
                                                   builders: {'code': HighlightCodeBuilder()},
                                                 ),
@@ -479,7 +527,8 @@ class _ChatScreenState extends State<ChatScreen> {
                               children: [
                                 if (_quotedMessage.isNotEmpty)
                                   Container(
-                                    padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.all(8), 
+                                    margin: const EdgeInsets.only(bottom: 8),
                                     decoration: const BoxDecoration(color: Color(0xFF2C2C2C), border: Border(left: BorderSide(color: Colors.deepPurple, width: 4))),
                                     child: Row(
                                       children: [
@@ -501,16 +550,20 @@ class _ChatScreenState extends State<ChatScreen> {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: TextField(
-                                        controller: _controller, style: const TextStyle(color: Colors.white),
+                                        controller: _controller, 
+                                        style: const TextStyle(color: Colors.white),
                                         maxLength: 4000,
                                         buildCounter: (context, {required currentLength, required isFocused, maxLength}) => Text('$currentLength/$maxLength', style: const TextStyle(fontSize: 10, color: Colors.white38)),
                                         decoration: InputDecoration(
                                           hintText: 'Tanya ${_selectedModel.name}...',
                                           hintStyle: const TextStyle(color: Colors.white54),
-                                          filled: true, fillColor: const Color(0xFF2C2C2C),
+                                          filled: true, 
+                                          fillColor: const Color(0xFF2C2C2C),
                                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                                           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                          suffixIcon: _isEnhancing ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))) : IconButton(icon: const Icon(Icons.auto_fix_high, color: Colors.amberAccent), onPressed: _enhanceCurrentPrompt),
+                                          suffixIcon: _isEnhancing 
+                                            ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))) 
+                                            : IconButton(icon: const Icon(Icons.auto_fix_high, color: Colors.amberAccent), onPressed: _enhanceCurrentPrompt),
                                         ),
                                         onSubmitted: (_) => _sendMessage(),
                                       ),
@@ -531,7 +584,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
     );
-  // }
+  }
 }
 
 class HighlightCodeBuilder extends MarkdownElementBuilder {
@@ -542,9 +595,12 @@ class HighlightCodeBuilder extends MarkdownElementBuilder {
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: HighlightView(
-        element.textContent, language: language.isEmpty ? 'plaintext' : language, theme: vs2015Theme,
-        padding: const EdgeInsets.all(12), textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+        element.textContent, 
+        language: language.isEmpty ? 'plaintext' : language, 
+        theme: vs2015Theme,
+        padding: const EdgeInsets.all(12), 
+        textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 13),
       ),
     );
-  // }
+  }
 }
