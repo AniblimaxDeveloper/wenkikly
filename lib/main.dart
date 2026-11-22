@@ -6,6 +6,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:intl/intl.dart';
 import 'models/ai_model.dart';
 import 'models/chat_session.dart';
 import 'services/ai_service.dart';
@@ -76,6 +77,7 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final AIService _aiService = AIService();
   final StorageService _storageService = StorageService();
@@ -89,6 +91,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isLoading = false;
   AIModel _selectedModel = wenkiklyModels[0];
   bool _showScrollToBottom = false;
+  String _searchQuery = '';
+  List<String> _savedPrompts = [];
 
   final List<String> _quickPrompts = [
     "Buatkan kode Flutter untuk UI login.",
@@ -101,7 +105,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _initTts();
-    _loadHistory();
+    _loadSettings();
     _scrollController.addListener(() {
       if (_scrollController.offset < _scrollController.position.maxScrollExtent - 200) {
         if (!_showScrollToBottom) setState(() => _showScrollToBottom = true);
@@ -114,6 +118,23 @@ class _ChatScreenState extends State<ChatScreen> {
   void _initTts() async {
     await _flutterTts.setLanguage("id-ID");
     await _flutterTts.setSpeechRate(0.5);
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final prompts = prefs.getStringList('saved_prompts') ?? [];
+    final sessions = await _storageService.loadSessions();
+    
+    setState(() {
+      _savedPrompts = prompts;
+      _sessions = sessions;
+      if (_sessions.isNotEmpty) {
+        _currentSession = _sessions.first;
+        _selectedModel = wenkiklyModels.firstWhere((m) => m.id == _currentSession!.modelId, orElse: () => wenkiklyModels[0]);
+      } else {
+        _createNewSession();
+      }
+    });
   }
 
   void _listen() async {
@@ -134,19 +155,6 @@ class _ChatScreenState extends State<ChatScreen> {
     await _flutterTts.speak(cleanText);
   }
 
-  Future<void> _loadHistory() async {
-    final sessions = await _storageService.loadSessions();
-    setState(() {
-      _sessions = sessions;
-      if (_sessions.isNotEmpty) {
-        _currentSession = _sessions.first;
-        _selectedModel = wenkiklyModels.firstWhere((m) => m.id == _currentSession!.modelId, orElse: () => wenkiklyModels[0]);
-      } else {
-        _createNewSession();
-      }
-    });
-  }
-
   void _createNewSession() {
     final newSession = ChatSession(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -161,7 +169,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _storageService.saveSessions(_sessions);
   }
 
-  // FITUR BARU: Hapus Sesi Chat Spesifik
   void _deleteSession(String id) {
     setState(() {
       _sessions.removeWhere((s) => s.id == id);
@@ -185,6 +192,50 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  Future<void> _savePrompt() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (!_savedPrompts.contains(text)) {
+      setState(() {
+        _savedPrompts.add(text);
+      });
+      await prefs.setStringList('saved_prompts', _savedPrompts);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Prompt disimpan!')));
+      }
+    }
+  }
+
+  void _showSavedPrompts() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      builder: (context) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: _savedPrompts.isEmpty 
+          ? [const Text('Belum ada prompt tersimpan.', textAlign: TextAlign.center)]
+          : _savedPrompts.map((prompt) => ListTile(
+              leading: const Icon(Icons.bookmark, color: Colors.deepPurple),
+              title: Text(prompt),
+              trailing: IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () async {
+                  final prefs = await SharedPreferences.getInstance();
+                  setState(() { _savedPrompts.remove(prompt); });
+                  await prefs.setStringList('saved_prompts', _savedPrompts);
+                  Navigator.pop(context);
+                },
+              ),
+              onTap: () {
+                setState(() { _controller.text = prompt; });
+                Navigator.pop(context);
+              },
+            )).toList(),
+      ),
+    );
+  }
+
   Future<void> _sendMessage({String? text}) async {
     final messageText = text ?? _controller.text.trim();
     if (messageText.isEmpty || _currentSession == null) return;
@@ -198,7 +249,11 @@ class _ChatScreenState extends State<ChatScreen> {
       if (_currentSession!.messages.isEmpty) {
         _currentSession!.title = messageText.length > 25 ? '${messageText.substring(0, 25)}...' : messageText;
       }
-      _currentSession!.messages.add({'role': 'user', 'content': messageText});
+      _currentSession!.messages.add({
+        'role': 'user', 
+        'content': messageText,
+        'timestamp': DateTime.now().toIso8601String()
+      });
       _isLoading = true;
     });
     _controller.clear();
@@ -208,14 +263,17 @@ class _ChatScreenState extends State<ChatScreen> {
     final reply = await _aiService.sendMessage(_currentSession!.messages, _selectedModel.id);
 
     setState(() {
-      _currentSession!.messages.add({'role': 'assistant', 'content': reply});
+      _currentSession!.messages.add({
+        'role': 'assistant', 
+        'content': reply,
+        'timestamp': DateTime.now().toIso8601String()
+      });
       _isLoading = false;
     });
     _scrollToBottom();
     _storageService.saveSessions(_sessions);
   }
 
-  // FITUR BARU: Regenerate Jawaban AI
   void _regenerateResponse() async {
     if (_currentSession == null || _currentSession!.messages.isEmpty) return;
     
@@ -229,7 +287,11 @@ class _ChatScreenState extends State<ChatScreen> {
       final reply = await _aiService.sendMessage(_currentSession!.messages, _selectedModel.id);
 
       setState(() {
-        _currentSession!.messages.add({'role': 'assistant', 'content': reply});
+        _currentSession!.messages.add({
+          'role': 'assistant', 
+          'content': reply,
+          'timestamp': DateTime.now().toIso8601String()
+        });
         _isLoading = false;
       });
       _scrollToBottom();
@@ -309,10 +371,61 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  // FITUR BARU: Custom Code Block Builder untuk tombol Copy
+  Widget _buildCodeBlock(BuildContext context, String code, String? language) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: const BoxDecoration(
+              color: Color(0xFF2D2D2D),
+              borderRadius: BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(language?.toUpperCase() ?? 'CODE', style: const TextStyle(fontSize: 10, color: Colors.white54, fontWeight: FontWeight.bold)),
+                InkWell(
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: code));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kode disalin!'), duration: Duration(seconds: 1)));
+                  },
+                  child: const Row(
+                    children: [
+                      Icon(Icons.copy, size: 14, color: Colors.white54),
+                      SizedBox(width: 4),
+                      Text('Copy', style: TextStyle(fontSize: 10, color: Colors.white54)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.all(12),
+            child: Text(code, style: const TextStyle(color: Colors.greenAccent, fontFamily: 'monospace', fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     
+    // FITUR BARU: Logika Filter Pencarian
+    final filteredSessions = _sessions.where((s) => s.title.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -328,7 +441,7 @@ class _ChatScreenState extends State<ChatScreen> {
           IconButton(icon: const Icon(Icons.swap_horiz), tooltip: 'Ganti Model', onPressed: _showModelSelector),
           IconButton(
             icon: const Icon(Icons.settings), 
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(onThemeChanged: widget.onThemeChanged))).then((_) => _loadHistory())
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(onThemeChanged: widget.onThemeChanged))).then((_) => _loadSettings())
           ),
         ],
       ),
@@ -338,33 +451,54 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             DrawerHeader(
               decoration: BoxDecoration(color: isDark ? const Color(0xFF0F0F0F) : Colors.grey[200]),
-              child: Center(child: Text('Riwayat Obrolan', style: Theme.of(context).textTheme.titleLarge)),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('Riwayat Obrolan', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 12),
+                  // FITUR BARU: Kolom Pencarian
+                  TextField(
+                    controller: _searchController,
+                    onChanged: (val) => setState(() => _searchQuery = val),
+                    style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: 'Cari obrolan...',
+                      prefixIcon: const Icon(Icons.search, size: 18),
+                      filled: true,
+                      fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                    ),
+                  ),
+                ],
+              ),
             ),
             Expanded(
-              child: ListView.builder(
-                itemCount: _sessions.length,
-                itemBuilder: (context, index) {
-                  final session = _sessions[index];
-                  return ListTile(
-                    leading: const Icon(Icons.chat_bubble_outline, size: 20),
-                    title: Text(session.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    selected: session.id == _currentSession?.id,
-                    selectedTileColor: Colors.deepPurple.withOpacity(0.2),
-                    // FITUR BARU: Tombol Hapus Spesifik di Drawer
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
-                      onPressed: () => _deleteSession(session.id),
-                    ),
-                    onTap: () {
-                      setState(() {
-                        _currentSession = session;
-                        _selectedModel = wenkiklyModels.firstWhere((m) => m.id == session.modelId, orElse: () => wenkiklyModels[0]);
-                      });
-                      Navigator.pop(context);
+              child: filteredSessions.isEmpty 
+                ? const Center(child: Text('Tidak ada obrolan ditemukan', style: TextStyle(color: Colors.grey)))
+                : ListView.builder(
+                    itemCount: filteredSessions.length,
+                    itemBuilder: (context, index) {
+                      final session = filteredSessions[index];
+                      return ListTile(
+                        leading: const Icon(Icons.chat_bubble_outline, size: 20),
+                        title: Text(session.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        selected: session.id == _currentSession?.id,
+                        selectedTileColor: Colors.deepPurple.withOpacity(0.2),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                          onPressed: () => _deleteSession(session.id),
+                        ),
+                        onTap: () {
+                          setState(() {
+                            _currentSession = session;
+                            _selectedModel = wenkiklyModels.firstWhere((m) => m.id == session.modelId, orElse: () => wenkiklyModels[0]);
+                          });
+                          Navigator.pop(context);
+                        },
+                      );
                     },
-                  );
-                },
-              ),
+                  ),
             ),
           ],
         ),
@@ -409,6 +543,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                 final msg = _currentSession!.messages[index];
                                 final isUser = msg['role'] == 'user';
                                 final isLastMessage = index == _currentSession!.messages.length - 1;
+                                final timeStr = msg['timestamp'] != null 
+                                  ? DateFormat('HH:mm').format(DateTime.parse(msg['timestamp'])) 
+                                  : '';
+                                final tokenEstimate = (msg['content']!.length / 4).ceil();
                                 
                                 return Align(
                                   alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -434,31 +572,40 @@ class _ChatScreenState extends State<ChatScreen> {
                                               data: msg['content']!,
                                               styleSheet: MarkdownStyleSheet(
                                                 p: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87),
-                                                code: const TextStyle(backgroundColor: Colors.black45, color: Colors.greenAccent, fontFamily: 'monospace'),
-                                                codeblockDecoration: BoxDecoration(
-                                                  color: Colors.black87,
-                                                  borderRadius: BorderRadius.circular(8),
-                                                ),
                                               ),
+                                              builders: {
+                                                'code': CodeElementBuilder(_buildCodeBlock),
+                                              },
                                             ),
                                         const SizedBox(height: 8),
                                         Row(
-                                          mainAxisAlignment: MainAxisAlignment.end,
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                           children: [
-                                            if (!isUser) ...[
-                                              IconButton(icon: const Icon(Icons.volume_up, size: 16, color: Colors.grey), onPressed: () => _speak(msg['content']!)),
-                                              const SizedBox(width: 8),
-                                              // FITUR BARU: Regenerate (Hanya di pesan terakhir AI)
-                                              if (isLastMessage)
-                                                IconButton(icon: const Icon(Icons.refresh, size: 16, color: Colors.deepPurpleAccent), onPressed: _regenerateResponse),
-                                              const SizedBox(width: 8),
-                                            ],
-                                            IconButton(
-                                              icon: const Icon(Icons.copy, size: 16, color: Colors.grey),
-                                              onPressed: () {
-                                                Clipboard.setData(ClipboardData(text: msg['content']!));
-                                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disalin'), duration: Duration(seconds: 1)));
-                                              },
+                                            // FITUR BARU: Timestamp & Estimasi Token
+                                            Row(
+                                              children: [
+                                                Text(timeStr, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                                                const SizedBox(width: 8),
+                                                Text('~$tokenEstimate tk', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                                              ],
+                                            ),
+                                            Row(
+                                              children: [
+                                                if (!isUser) ...[
+                                                  IconButton(icon: const Icon(Icons.volume_up, size: 16, color: Colors.grey), onPressed: () => _speak(msg['content']!)),
+                                                  const SizedBox(width: 8),
+                                                  if (isLastMessage)
+                                                    IconButton(icon: const Icon(Icons.refresh, size: 16, color: Colors.deepPurpleAccent), onPressed: _regenerateResponse),
+                                                  const SizedBox(width: 8),
+                                                ],
+                                                IconButton(
+                                                  icon: const Icon(Icons.copy, size: 16, color: Colors.grey),
+                                                  onPressed: () {
+                                                    Clipboard.setData(ClipboardData(text: msg['content']!));
+                                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disalin'), duration: Duration(seconds: 1)));
+                                                  },
+                                                ),
+                                              ],
                                             ),
                                           ],
                                         )
@@ -504,7 +651,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                 style: TextStyle(color: isDark ? Colors.white : Colors.black),
                                 maxLength: 4000,
                                 buildCounter: (context, {required currentLength, required isFocused, maxLength}) {
-                                  // FITUR BARU: Karakter Counter
                                   return Text('$currentLength/$maxLength', style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : Colors.black38));
                                 },
                                 decoration: InputDecoration(
@@ -514,6 +660,22 @@ class _ChatScreenState extends State<ChatScreen> {
                                   fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                                   contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                                  // FITUR BARU: Tombol Bookmark Prompt
+                                  suffixIcon: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.bookmark_add_outlined, size: 20, color: Colors.deepPurpleAccent),
+                                        tooltip: 'Simpan Prompt',
+                                        onPressed: _savePrompt,
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.list, size: 20, color: Colors.grey),
+                                        tooltip: 'Prompt Tersimpan',
+                                        onPressed: _showSavedPrompts,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                                 onSubmitted: (_) => _sendMessage(),
                               ),
@@ -545,5 +707,20 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
     );
+  }
+}
+
+// FITUR BARU: Class untuk Custom Code Block
+class CodeElementBuilder extends MarkdownElementBuilder {
+  final Widget Function(BuildContext, String, String?) builder;
+  CodeElementBuilder(this.builder);
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    var language = '';
+    if (element.attributes['class'] != null) {
+      language = element.attributes['class']!.substring(9); // remove 'language-'
+    }
+    return builder(context!, element.textContent, language);
   }
 }
