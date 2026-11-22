@@ -10,6 +10,8 @@ import 'package:intl/intl.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter_highlight/flutter_highlight.dart';
+import 'package:flutter_highlight/themes/vs2015.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'models/ai_model.dart';
@@ -32,6 +34,7 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
   bool _isDarkMode = true;
   bool _isBiometricEnabled = false;
   bool _isAuthenticated = false;
+  String _appLanguage = 'id';
   Color _accentColor = Colors.deepPurple;
   final LocalAuthentication auth = LocalAuthentication();
 
@@ -47,6 +50,7 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
       _isDarkMode = prefs.getBool('is_dark_mode') ?? true;
       _isBiometricEnabled = prefs.getBool('biometric_enabled') ?? false;
       _accentColor = Color(prefs.getInt('accent_color') ?? 0xFF673AB7);
+      _appLanguage = prefs.getString('app_language') ?? 'id';
     });
     
     if (_isBiometricEnabled) {
@@ -70,6 +74,7 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
 
   void _changeTheme(bool isDark) => setState(() => _isDarkMode = isDark);
   void _changeBiometric(bool enabled) => setState(() => _isBiometricEnabled = enabled);
+  void _changeLanguage(String lang) => setState(() => _appLanguage = lang);
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +105,7 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
       themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
       theme: ThemeData(brightness: Brightness.light, useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: _accentColor), appBarTheme: const AppBarTheme(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0)),
       darkTheme: ThemeData(brightness: Brightness.dark, useMaterial3: true, textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme), colorScheme: ColorScheme.fromSeed(seedColor: _accentColor, brightness: Brightness.dark), scaffoldBackgroundColor: const Color(0xFF0F0F0F), appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF1A1A1A), foregroundColor: Colors.white, elevation: 0)),
-      home: ChatScreen(onThemeChanged: _changeTheme, onBiometricChanged: _changeBiometric),
+      home: ChatScreen(onThemeChanged: _changeTheme, onBiometricChanged: _changeBiometric, onLanguageChanged: _changeLanguage, language: _appLanguage),
     );
   }
 }
@@ -108,7 +113,9 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
 class ChatScreen extends StatefulWidget {
   final Function(bool) onThemeChanged;
   final Function(bool) onBiometricChanged;
-  const ChatScreen({super.key, required this.onThemeChanged, required this.onBiometricChanged});
+  final Function(String) onLanguageChanged;
+  final String language;
+  const ChatScreen({super.key, required this.onThemeChanged, required this.onBiometricChanged, required this.onLanguageChanged, required this.language});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -127,6 +134,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isListening = false;
   bool _isZenMode = false;
   bool _isAutoTts = false;
+  bool _isEnhancing = false; // State untuk Prompt Enhancer
 
   List<ChatSession> _sessions = [];
   ChatSession? _currentSession;
@@ -135,7 +143,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _showScrollToBottom = false;
   String _searchQuery = '';
   List<String> _savedPrompts = [];
-  XFile? _pickedImage; // FITUR BARU: Variabel penampung gambar
+  XFile? _pickedImage;
 
   final List<String> _quickPrompts = [
     "Buatkan kode Flutter untuk UI login.",
@@ -166,7 +174,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _initTts() async {
-    await _flutterTts.setLanguage("id-ID");
+    await _flutterTts.setLanguage(widget.language == 'id' ? "id-ID" : "en-US");
     await _flutterTts.setSpeechRate(0.5);
   }
 
@@ -206,7 +214,6 @@ class _ChatScreenState extends State<ChatScreen> {
     await _flutterTts.speak(cleanText);
   }
 
-  // FITUR BARU: Ambil Gambar dari Galeri
   Future<void> _pickImage() async {
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
     if (image != null) {
@@ -252,15 +259,30 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // FITUR BARU: Tampilkan Template Prompt
+  // FITUR BARU: Prompt Enhancer
+  Future<void> _enhanceCurrentPrompt() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    
+    setState(() => _isEnhancing = true);
+    final enhanced = await _aiService.enhancePrompt(text);
+    
+    if (mounted) {
+      setState(() {
+        _controller.text = enhanced;
+        _isEnhancing = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Prompt berhasil disempurnakan!')));
+    }
+  }
+
   void _showSavedPrompts() {
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       isScrollControlled: true,
       builder: (context) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.6,
+        expand: false, initialChildSize: 0.6,
         builder: (context, scrollController) => Column(
           children: [
             const Padding(padding: EdgeInsets.all(16), child: Text('Prompt & Templates', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
@@ -268,10 +290,7 @@ class _ChatScreenState extends State<ChatScreen> {
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
-              children: _templatePrompts.map((t) => ActionChip(
-                label: Text(t, style: const TextStyle(fontSize: 11)),
-                onPressed: () { setState(() { _controller.text = t; }); Navigator.pop(context); },
-              )).toList(),
+              children: _templatePrompts.map((t) => ActionChip(label: Text(t, style: const TextStyle(fontSize: 11)), onPressed: () { setState(() { _controller.text = t; }); Navigator.pop(context); })).toList(),
             ),
             const Divider(height: 30),
             const Text('Tersimpan:', style: TextStyle(fontSize: 12, color: Colors.grey)),
@@ -309,12 +328,10 @@ class _ChatScreenState extends State<ChatScreen> {
     String displayContent = messageText;
     dynamic apiContent = messageText;
 
-    // FITUR BARU: Jika ada gambar, proses jadi Base64 untuk Vision API
     if (_pickedImage != null) {
       final bytes = await _pickedImage!.readAsBytes();
       final base64Image = base64Encode(bytes);
       displayContent = messageText.isEmpty ? "[Gambar Terlampir]" : messageText;
-      
       apiContent = [
         {"type": "text", "text": messageText.isEmpty ? "Jelaskan gambar ini." : messageText},
         {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,$base64Image"}}
@@ -322,23 +339,16 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     setState(() {
-      if (_currentSession!.messages.isEmpty) {
-        _currentSession!.title = displayContent.length > 25 ? '${displayContent.substring(0, 25)}...' : displayContent;
-      }
+      if (_currentSession!.messages.isEmpty) _currentSession!.title = displayContent.length > 25 ? '${displayContent.substring(0, 25)}...' : displayContent;
       _currentSession!.messages.add({'role': 'user', 'content': displayContent, 'timestamp': DateTime.now().toIso8601String(), 'raw_api_content': apiContent});
       _isLoading = true;
-      _pickedImage = null; // Reset gambar setelah dikirim
+      _pickedImage = null;
     });
     _controller.clear();
     _scrollToBottom();
     _storageService.saveSessions(_sessions);
 
-    // Kirim ke API
-    final apiMessages = _currentSession!.messages.map((m) => {
-      'role': m['role'],
-      'content': m['raw_api_content'] ?? m['content']
-    }).toList();
-
+    final apiMessages = _currentSession!.messages.map((m) => {'role': m['role'], 'content': m['raw_api_content'] ?? m['content']}).toList();
     final reply = await _aiService.sendMessage(apiMessages, _selectedModel.id);
 
     setState(() {
@@ -348,33 +358,19 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToBottom();
     _storageService.saveSessions(_sessions);
 
-    // FITUR BARU: Auto-TTS
-    if (_isAutoTts && !reply.startsWith('Error')) {
-      _speak(reply);
-    }
+    if (_isAutoTts && !reply.startsWith('Error')) _speak(reply);
   }
 
   void _regenerateResponse() async {
     if (_currentSession == null || _currentSession!.messages.isEmpty) return;
-    
     if (_currentSession!.messages.last['role'] == 'assistant') {
       setState(() { _currentSession!.messages.removeLast(); _isLoading = true; });
       _storageService.saveSessions(_sessions);
-
-      final apiMessages = _currentSession!.messages.map((m) => {
-        'role': m['role'],
-        'content': m['raw_api_content'] ?? m['content']
-      }).toList();
-
+      final apiMessages = _currentSession!.messages.map((m) => {'role': m['role'], 'content': m['raw_api_content'] ?? m['content']}).toList();
       final reply = await _aiService.sendMessage(apiMessages, _selectedModel.id);
-
-      setState(() {
-        _currentSession!.messages.add({'role': 'assistant', 'content': reply, 'timestamp': DateTime.now().toIso8601String()});
-        _isLoading = false;
-      });
+      setState(() { _currentSession!.messages.add({'role': 'assistant', 'content': reply, 'timestamp': DateTime.now().toIso8601String()}); _isLoading = false; });
       _scrollToBottom();
       _storageService.saveSessions(_sessions);
-      
       if (_isAutoTts && !reply.startsWith('Error')) _speak(reply);
     }
   }
@@ -386,7 +382,6 @@ class _ChatScreenState extends State<ChatScreen> {
       text += msg['role'] == 'user' ? "User: " : "AI: ";
       text += "${msg['content']}\n\n";
     }
-    
     try {
       final directory = await getTemporaryDirectory();
       final file = File('${directory.path}/Wenkikly_${_currentSession!.id}.txt');
@@ -398,48 +393,35 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showLimitDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(title: const Text('Limit Tercapai'), content: const Text('Batas pesan untuk paket Free telah habis. Silakan ganti ke model Unlimited.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]),
-    );
+    showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Limit Tercapai'), content: const Text('Batas pesan paket Free habis. Ganti ke Unlimited.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]));
   }
 
   void _showModelSelector() {
     showModalBottomSheet(
-      context: context,
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      isScrollControlled: true,
+      context: context, backgroundColor: Theme.of(context).scaffoldBackgroundColor, isScrollControlled: true,
       builder: (context) => DraggableScrollableSheet(
         expand: false, initialChildSize: 0.7, maxChildSize: 0.9,
-        builder: (context, scrollController) {
-          return Column(
-            children: [
-              const Padding(padding: EdgeInsets.all(16.0), child: Text('Pilih Model Wenkikly', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController, itemCount: wenkiklyModels.length,
-                  itemBuilder: (context, index) {
-                    final model = wenkiklyModels[index];
-                    final isSelected = model.id == _selectedModel.id;
-                    return ListTile(
-                      leading: CircleAvatar(backgroundColor: isSelected ? Colors.deepPurple : Colors.grey[800], child: Icon(model.icon, color: Colors.white, size: 20)),
-                      title: Row(
-                        children: [
-                          Text(model.name, style: TextStyle(color: isSelected ? Colors.deepPurpleAccent : null, fontWeight: FontWeight.bold)),
-                          const SizedBox(width: 8),
-                          Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: model.isUnlimited ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(4)), child: Text(model.isUnlimited ? 'UNLIMITED' : 'LIMIT', style: TextStyle(fontSize: 10, color: model.isUnlimited ? Colors.green : Colors.orange, fontWeight: FontWeight.bold))),
-                        ],
-                      ),
-                      subtitle: Text(model.description, style: const TextStyle(fontSize: 12, color: Colors.white54)),
-                      trailing: isSelected ? const Icon(Icons.check_circle, color: Colors.deepPurpleAccent) : null,
-                      onTap: () { setState(() { _selectedModel = model; _currentSession!.modelId = model.id; }); _storageService.saveSessions(_sessions); Navigator.pop(context); },
-                    );
-                  },
-                ),
+        builder: (context, scrollController) => Column(
+          children: [
+            const Padding(padding: EdgeInsets.all(16.0), child: Text('Pilih Model Wenkikly', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+            Expanded(
+              child: ListView.builder(
+                controller: scrollController, itemCount: wenkiklyModels.length,
+                itemBuilder: (context, index) {
+                  final model = wenkiklyModels[index];
+                  final isSelected = model.id == _selectedModel.id;
+                  return ListTile(
+                    leading: CircleAvatar(backgroundColor: isSelected ? Colors.deepPurple : Colors.grey[800], child: Icon(model.icon, color: Colors.white, size: 20)),
+                    title: Row(children: [Text(model.name, style: TextStyle(color: isSelected ? Colors.deepPurpleAccent : null, fontWeight: FontWeight.bold)), const SizedBox(width: 8), Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: model.isUnlimited ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(4)), child: Text(model.isUnlimited ? 'UNLIMITED' : 'LIMIT', style: TextStyle(fontSize: 10, color: model.isUnlimited ? Colors.green : Colors.orange, fontWeight: FontWeight.bold)))]),
+                    subtitle: Text(model.description, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                    trailing: isSelected ? const Icon(Icons.check_circle, color: Colors.deepPurpleAccent) : null,
+                    onTap: () { setState(() { _selectedModel = model; _currentSession!.modelId = model.id; }); _storageService.saveSessions(_sessions); Navigator.pop(context); },
+                  );
+                },
               ),
-            ],
-          );
-        },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -449,13 +431,16 @@ class _ChatScreenState extends State<ChatScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final filteredSessions = _sessions.where((s) => s.title.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
     
-    // Hitung total token di sesi ini
     int totalTokens = 0;
     if (_currentSession != null) {
-      for (var msg in _currentSession!.messages) {
-        totalTokens += ((msg['content']?.length ?? 0) / 4).ceil();
-      }
+      for (var msg in _currentSession!.messages) { totalTokens += ((msg['content']?.length ?? 0) / 4).ceil(); }
     }
+
+    // Dictionary sederhana untuk dwibahasa
+    final isEn = widget.language == 'en';
+    final txtNewChat = isEn ? 'New Chat' : 'Chat Baru';
+    final txtSettings = isEn ? 'Settings' : 'Pengaturan';
+    final txtSearch = isEn ? 'Search chats...' : 'Cari obrolan...';
 
     return Scaffold(
       appBar: _isZenMode ? null : AppBar(
@@ -467,10 +452,10 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.ios_share), tooltip: 'Ekspor Chat', onPressed: _exportChat),
-          IconButton(icon: const Icon(Icons.add_comment_outlined), tooltip: 'Chat Baru', onPressed: _createNewSession),
-          IconButton(icon: const Icon(Icons.swap_horiz), tooltip: 'Ganti Model', onPressed: _showModelSelector),
-          IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(onThemeChanged: widget.onThemeChanged, onBiometricChanged: widget.onBiometricChanged))).then((_) => _loadSettings())),
+          IconButton(icon: const Icon(Icons.ios_share), onPressed: _exportChat),
+          IconButton(icon: const Icon(Icons.add_comment_outlined), tooltip: txtNewChat, onPressed: _createNewSession),
+          IconButton(icon: const Icon(Icons.swap_horiz), onPressed: _showModelSelector),
+          IconButton(icon: const Icon(Icons.settings), tooltip: txtSettings, onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(onThemeChanged: widget.onThemeChanged, onBiometricChanged: widget.onBiometricChanged, onLanguageChanged: widget.onLanguageChanged))).then((_) => _loadSettings())),
         ],
       ),
       drawer: Drawer(
@@ -482,20 +467,20 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text('Riwayat Obrolan', style: Theme.of(context).textTheme.titleLarge),
-                  Text('Total Token Sesi Ini: ~$totalTokens', style: const TextStyle(fontSize: 12, color: Colors.deepPurpleAccent)),
+                  Text(isEn ? 'Chat History' : 'Riwayat Obrolan', style: Theme.of(context).textTheme.titleLarge),
+                  Text(isEn ? 'Total Tokens: ~$totalTokens' : 'Total Token Sesi Ini: ~$totalTokens', style: const TextStyle(fontSize: 12, color: Colors.deepPurpleAccent)),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _searchController, onChanged: (val) => setState(() => _searchQuery = val),
                     style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14),
-                    decoration: InputDecoration(hintText: 'Cari obrolan...', prefixIcon: const Icon(Icons.search, size: 18), filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.white, contentPadding: const EdgeInsets.symmetric(vertical: 0), border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none)),
+                    decoration: InputDecoration(hintText: txtSearch, prefixIcon: const Icon(Icons.search, size: 18), filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.white, contentPadding: const EdgeInsets.symmetric(vertical: 0), border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none)),
                   ),
                 ],
               ),
             ),
             Expanded(
               child: filteredSessions.isEmpty 
-                ? const Center(child: Text('Tidak ada obrolan ditemukan', style: TextStyle(color: Colors.grey)))
+                ? Center(child: Text(isEn ? 'No chats found' : 'Tidak ada obrolan ditemukan', style: const TextStyle(color: Colors.grey)))
                 : ListView.builder(
                     itemCount: filteredSessions.length,
                     itemBuilder: (context, index) {
@@ -531,9 +516,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                     children: [
                                       Icon(Icons.auto_awesome, size: 64, color: Colors.deepPurple.withOpacity(0.5)),
                                       const SizedBox(height: 16),
-                                      Text('Mulai percakapan dengan ${_selectedModel.name}', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)),
+                                      Text(isEn ? 'Start chatting with ${_selectedModel.name}' : 'Mulai percakapan dengan ${_selectedModel.name}', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)),
                                       const SizedBox(height: 8),
-                                      const Text('Trik: Ketik /image [deskripsi] atau kirim foto dari galeri!', style: TextStyle(fontSize: 12, color: Colors.deepPurpleAccent)),
+                                      Text(isEn ? 'Tip: Type /image [desc] or send a photo!' : 'Trik: Ketik /image [deskripsi] atau kirim foto!', style: const TextStyle(fontSize: 12, color: Colors.deepPurpleAccent)),
                                       const SizedBox(height: 24),
                                       Wrap(
                                         spacing: 8, runSpacing: 8, alignment: WrapAlignment.center,
@@ -572,7 +557,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                           else
                                             MarkdownBody(
                                                 data: msg['content']!,
-                                                styleSheet: MarkdownStyleSheet(p: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87), code: const TextStyle(backgroundColor: Colors.black45, color: Colors.greenAccent, fontFamily: 'monospace'), codeblockDecoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8))),
+                                                styleSheet: MarkdownStyleSheet(p: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87)),
+                                                builders: {
+                                                  // FITUR BARU: Syntax Highlighting
+                                                  'code': HighlightCodeBuilder(),
+                                                },
                                               ),
                                           const SizedBox(height: 8),
                                           Row(
@@ -582,7 +571,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                               Row(
                                                 children: [
                                                   if (!isUser) ...[
-                                                    IconButton(icon: const Icon(Icons.g_translate, size: 16, color: Colors.grey), tooltip: 'Terjemahkan', onPressed: () => _sendMessage(text: "Terjemahkan teks berikut ke Bahasa Indonesia: ${msg['content']}")),
+                                                    IconButton(icon: const Icon(Icons.g_translate, size: 16, color: Colors.grey), onPressed: () => _sendMessage(text: "Terjemahkan teks berikut ke Bahasa Indonesia: ${msg['content']}")),
                                                     IconButton(icon: const Icon(Icons.volume_up, size: 16, color: Colors.grey), onPressed: () => _speak(msg['content']!)),
                                                     const SizedBox(width: 8),
                                                     if (isLastMessage) IconButton(icon: const Icon(Icons.refresh, size: 16, color: Colors.deepPurpleAccent), onPressed: _regenerateResponse),
@@ -601,7 +590,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               ),
                       ),
                       if (_isLoading)
-                        Padding(padding: const EdgeInsets.all(8.0), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepPurpleAccent)), const SizedBox(width: 12), Text('Wenkikly sedang mengetik...', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54, fontSize: 12))])),
+                        Padding(padding: const EdgeInsets.all(8.0), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepPurpleAccent)), const SizedBox(width: 12), Text(isEn ? 'Wenkikly is typing...' : 'Wenkikly sedang mengetik...', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54, fontSize: 12))])),
                       if (!_isZenMode)
                         Container(
                           padding: const EdgeInsets.all(12),
@@ -609,35 +598,18 @@ class _ChatScreenState extends State<ChatScreen> {
                           child: SafeArea(
                             child: Column(
                               children: [
-                                // FITUR BARU: Preview Gambar sebelum dikirim
                                 if (_pickedImage != null)
                                   Stack(
                                     children: [
-                                      Container(
-                                        height: 100, width: 100, margin: const EdgeInsets.only(bottom: 8),
-                                        decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), image: DecorationImage(image: FileImage(File(_pickedImage!.path)), fit: BoxFit.cover)),
-                                      ),
-                                      Positioned(
-                                        top: 0, right: 0,
-                                        child: GestureDetector(
-                                          onTap: () => setState(() => _pickedImage = null),
-                                          child: Container(padding: const EdgeInsets.all(2), decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle), child: const Icon(Icons.close, size: 14, color: Colors.white)),
-                                        ),
-                                      ),
+                                      Container(height: 100, width: 100, margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), image: DecorationImage(image: FileImage(File(_pickedImage!.path)), fit: BoxFit.cover))),
+                                      Positioned(top: 0, right: 0, child: GestureDetector(onTap: () => setState(() => _pickedImage = null), child: Container(padding: const EdgeInsets.all(2), decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle), child: const Icon(Icons.close, size: 14, color: Colors.white)))),
                                     ],
                                   ),
                                 Row(
                                   children: [
-                                    // FITUR BARU: Tombol Galeri (Vision)
-                                    CircleAvatar(
-                                      backgroundColor: (isDark ? const Color(0xFF2C2C2C) : Colors.grey[300]),
-                                      child: IconButton(icon: Icon(Icons.add_photo_alternate, color: (isDark ? Colors.white54 : Colors.black54), size: 20), onPressed: _pickImage),
-                                    ),
+                                    CircleAvatar(backgroundColor: (isDark ? const Color(0xFF2C2C2C) : Colors.grey[300]), child: IconButton(icon: Icon(Icons.add_photo_alternate, color: (isDark ? Colors.white54 : Colors.black54), size: 20), onPressed: _pickImage)),
                                     const SizedBox(width: 8),
-                                    CircleAvatar(
-                                      backgroundColor: _isListening ? Colors.redAccent : (isDark ? const Color(0xFF2C2C2C) : Colors.grey[300]),
-                                      child: IconButton(icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.white : (isDark ? Colors.white54 : Colors.black54), size: 20), onPressed: _listen),
-                                    ),
+                                    CircleAvatar(backgroundColor: _isListening ? Colors.redAccent : (isDark ? const Color(0xFF2C2C2C) : Colors.grey[300]), child: IconButton(icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.white : (isDark ? Colors.white54 : Colors.black54), size: 20), onPressed: _listen)),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: TextField(
@@ -645,7 +617,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                         maxLength: 4000,
                                         buildCounter: (context, {required currentLength, required isFocused, maxLength}) => Text('$currentLength/$maxLength', style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : Colors.black38)),
                                         decoration: InputDecoration(
-                                          hintText: _isListening ? 'Mendengarkan...' : 'Tanya ${_selectedModel.name}...',
+                                          hintText: _isListening ? (isEn ? 'Listening...' : 'Mendengarkan...') : (isEn ? 'Ask ${_selectedModel.name}...' : 'Tanya ${_selectedModel.name}...'),
                                           hintStyle: TextStyle(color: _isListening ? Colors.redAccent : (isDark ? Colors.white54 : Colors.black54)),
                                           filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
                                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
@@ -653,7 +625,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                           suffixIcon: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              IconButton(icon: const Icon(Icons.bookmark_add_outlined, size: 20, color: Colors.deepPurpleAccent), tooltip: 'Simpan Prompt', onPressed: _savePrompt),
+                                              // FITUR BARU: Prompt Enhancer (Magic Wand)
+                                              _isEnhancing 
+                                                ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)))
+                                                : IconButton(icon: const Icon(Icons.auto_fix_high, size: 20, color: Colors.amberAccent), tooltip: 'Enhance Prompt', onPressed: _enhanceCurrentPrompt),
                                               IconButton(icon: const Icon(Icons.list, size: 20, color: Colors.grey), tooltip: 'Prompt Tersimpan', onPressed: _showSavedPrompts),
                                             ],
                                           ),
@@ -662,10 +637,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                       ),
                                     ),
                                     const SizedBox(width: 8),
-                                    CircleAvatar(
-                                      backgroundColor: Colors.deepPurple,
-                                      child: IconButton(icon: const Icon(Icons.send, color: Colors.white, size: 20), onPressed: _isLoading ? null : () => _sendMessage()),
-                                    ),
+                                    CircleAvatar(backgroundColor: Colors.deepPurple, child: IconButton(icon: const Icon(Icons.send, color: Colors.white, size: 20), onPressed: _isLoading ? null : () => _sendMessage())),
                                   ],
                                 ),
                               ],
@@ -679,6 +651,27 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+// FITUR BARU: Builder untuk Syntax Highlighting
+class HighlightCodeBuilder extends MarkdownElementBuilder {
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    var language = '';
+    if (element.attributes['class'] != null) {
+      language = element.attributes['class']!.substring(9);
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: HighlightView(
+        element.textContent,
+        language: language.isEmpty ? 'plaintext' : language,
+        theme: vs2015Theme,
+        padding: const EdgeInsets.all(12),
+        textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+      ),
     );
   }
 }

@@ -15,15 +15,12 @@ class AIService {
 
   Future<String> sendMessage(List<Map<String, dynamic>> messages, String modelId) async {
     final apiKey = await _getApiKey();
-    if (apiKey.isEmpty) {
-      return 'Error: API Key tidak ditemukan. Silakan buka menu Settings dan masukkan API Key OpenRouter Anda.';
-    }
+    if (apiKey.isEmpty) return 'Error: API Key tidak ditemukan.';
 
     final prefs = await SharedPreferences.getInstance();
     final systemPrompt = prefs.getString('system_prompt') ?? '';
     final temperature = prefs.getDouble('temperature') ?? 0.7;
 
-    // FITUR BARU: Cek jika user minta gambar
     final lastContent = messages.last['content'];
     if (lastContent is String && lastContent.startsWith('/image ')) {
       final prompt = lastContent.replaceFirst('/image ', '');
@@ -32,50 +29,62 @@ class AIService {
     }
 
     List<Map<String, dynamic>> finalMessages = [];
-    if (systemPrompt.isNotEmpty) {
-      finalMessages.add({'role': 'system', 'content': systemPrompt});
-    }
-    
-    // FITUR BARU: Cek apakah ada pesan vision (list of objects)
+    if (systemPrompt.isNotEmpty) finalMessages.add({'role': 'system', 'content': systemPrompt});
     finalMessages.addAll(messages);
 
     try {
       final response = await http.post(
         Uri.parse(_apiUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $apiKey',
-        },
-        body: jsonEncode({
-          'model': _getBackendModel(modelId),
-          'messages': finalMessages,
-          'temperature': temperature,
-        }),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'},
+        body: jsonEncode({'model': _getBackendModel(modelId), 'messages': finalMessages, 'temperature': temperature}),
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['choices'][0]['message']['content'] ?? 'Tidak ada respons.';
       } else if (response.statusCode == 401) {
-        return 'Error 401: API Key tidak valid atau sudah kedaluwarsa. Cek di menu Settings.';
+        return 'Error 401: API Key tidak valid.';
       } else if (response.statusCode == 429) {
-        return 'Error 429: Terlalu banyak permintaan (Rate Limit). Tunggu sebentar lalu coba lagi.';
+        return 'Error 429: Rate Limit. Tunggu sebentar.';
       } else {
         return 'Error ${response.statusCode}: ${response.body}';
       }
     } catch (e) {
-      return 'Gagal terhubung ke server AI. Periksa koneksi internet Anda.';
+      return 'Gagal terhubung ke server AI.';
+    }
+  }
+
+  // FITUR BARU: Prompt Enhancer
+  Future<String> enhancePrompt(String prompt) async {
+    final apiKey = await _getApiKey();
+    if (apiKey.isEmpty) return prompt;
+
+    try {
+      final response = await http.post(
+        Uri.parse(_apiUrl),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'},
+        body: jsonEncode({
+          'model': 'meta-llama/llama-3.1-8b-instruct',
+          'messages': [
+            {'role': 'system', 'content': 'You are an expert prompt engineer. Rewrite the user input to be a highly detailed, professional, and effective prompt for an AI. Output ONLY the rewritten prompt, no extra text.'},
+            {'role': 'user', 'content': prompt}
+          ],
+          'temperature': 0.7,
+        }),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['choices'][0]['message']['content'] ?? prompt;
+      }
+      return prompt;
+    } catch (e) {
+      return prompt;
     }
   }
 
   String _getBackendModel(String whenModel) {
-    // Jika model Vision, gunakan GPT-4o-mini yang mendukung gambar
-    if (whenModel.contains('Ultra') || whenModel.contains('Pro')) {
-      return 'openai/gpt-4o-mini'; 
-    } else if (whenModel.contains('when-go') || whenModel.contains('when-plus')) {
-      return 'meta-llama/llama-3.1-70b-instruct'; 
-    } else {
-      return 'meta-llama/llama-3.1-8b-instruct'; 
-    }
+    if (whenModel.contains('Ultra') || whenModel.contains('Pro')) return 'openai/gpt-4o-mini'; 
+    if (whenModel.contains('when-go') || whenModel.contains('when-plus')) return 'meta-llama/llama-3.1-70b-instruct'; 
+    return 'meta-llama/llama-3.1-8b-instruct'; 
   }
 }

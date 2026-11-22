@@ -4,7 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 class SettingsScreen extends StatefulWidget {
   final Function(bool) onThemeChanged;
   final Function(bool) onBiometricChanged;
-  const SettingsScreen({super.key, required this.onThemeChanged, required this.onBiometricChanged});
+  final Function(String) onLanguageChanged;
+  const SettingsScreen({super.key, required this.onThemeChanged, required this.onBiometricChanged, required this.onLanguageChanged});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -19,6 +20,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   double _temperature = 0.7;
   int _accentColorValue = 0xFF673AB7;
   String _selectedPersona = 'default';
+  String _appLanguage = 'id';
+  String _ttsVoice = 'default';
 
   final Map<String, String> _personas = {
     'default': '',
@@ -42,9 +45,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _systemPromptController.text = prefs.getString('system_prompt') ?? '';
       _isDarkMode = prefs.getBool('is_dark_mode') ?? true;
       _isBiometricEnabled = prefs.getBool('biometric_enabled') ?? false;
-      _isAutoTtsEnabled = prefs.getBool('auto_tts_enabled') ?? false; // FITUR BARU
+      _isAutoTtsEnabled = prefs.getBool('auto_tts_enabled') ?? false;
       _temperature = prefs.getDouble('temperature') ?? 0.7;
       _accentColorValue = prefs.getInt('accent_color') ?? 0xFF673AB7;
+      _appLanguage = prefs.getString('app_language') ?? 'id';
+      _ttsVoice = prefs.getString('tts_voice') ?? 'default';
       
       final currentPrompt = _systemPromptController.text;
       _selectedPersona = _personas.entries.firstWhere((e) => e.value == currentPrompt, orElse: () => const MapEntry('custom', '')).key;
@@ -57,22 +62,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setString('system_prompt', _systemPromptController.text.trim());
     await prefs.setBool('is_dark_mode', _isDarkMode);
     await prefs.setBool('biometric_enabled', _isBiometricEnabled);
-    await prefs.setBool('auto_tts_enabled', _isAutoTtsEnabled); // FITUR BARU
+    await prefs.setBool('auto_tts_enabled', _isAutoTtsEnabled);
     await prefs.setDouble('temperature', _temperature);
     await prefs.setInt('accent_color', _accentColorValue);
+    await prefs.setString('app_language', _appLanguage);
+    await prefs.setString('tts_voice', _ttsVoice);
     
     widget.onThemeChanged(_isDarkMode);
     widget.onBiometricChanged(_isBiometricEnabled);
+    widget.onLanguageChanged(_appLanguage);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pengaturan berhasil disimpan!')));
       Navigator.pop(context);
     }
-  }
-
-  Future<void> _clearHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('wenkikly_sessions');
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Semua riwayat chat telah dihapus.')));
   }
 
   @override
@@ -82,9 +84,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // BAHASA APLIKASI
+          const Text('Bahasa Aplikasi / App Language', style: TextStyle(fontWeight: FontWeight.bold)),
+          Row(
+            children: [
+              Expanded(child: RadioListTile<String>(title: const Text('Indonesia'), value: 'id', groupValue: _appLanguage, onChanged: (v) => setState(() => _appLanguage = v!))),
+              Expanded(child: RadioListTile<String>(title: const Text('English'), value: 'en', groupValue: _appLanguage, onChanged: (v) => setState(() => _appLanguage = v!))),
+            ],
+          ),
+          const Divider(height: 30, color: Colors.white24),
+
           SwitchListTile(title: const Text('Mode Gelap (Dark Mode)'), value: _isDarkMode, activeColor: Color(_accentColorValue), onChanged: (val) => setState(() => _isDarkMode = val)),
-          SwitchListTile(title: const Text('Kunci Biometrik (Sidik Jari)'), subtitle: const Text('Minta sidik jari saat membuka aplikasi'), value: _isBiometricEnabled, activeColor: Color(_accentColorValue), onChanged: (val) => setState(() => _isBiometricEnabled = val)),
-          SwitchListTile(title: const Text('Auto-Bacakan (Auto-TTS)'), subtitle: const Text('Bacakan jawaban AI secara otomatis'), value: _isAutoTtsEnabled, activeColor: Color(_accentColorValue), onChanged: (val) => setState(() => _isAutoTtsEnabled = val)),
+          SwitchListTile(title: const Text('Kunci Biometrik (Sidik Jari)'), value: _isBiometricEnabled, activeColor: Color(_accentColorValue), onChanged: (val) => setState(() => _isBiometricEnabled = val)),
+          SwitchListTile(title: const Text('Auto-Bacakan (Auto-TTS)'), value: _isAutoTtsEnabled, activeColor: Color(_accentColorValue), onChanged: (val) => setState(() => _isAutoTtsEnabled = val)),
           
           const Divider(height: 30, color: Colors.white24),
           const Text('Warna Tema Aplikasi', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -97,6 +109,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: CircleAvatar(backgroundColor: color, radius: 20, child: _accentColorValue == color.value ? const Icon(Icons.check, color: Colors.white, size: 20) : null),
               );
             }).toList(),
+          ),
+
+          const Divider(height: 30, color: Colors.white24),
+          const Text('Pilihan Suara TTS', style: TextStyle(fontWeight: FontWeight.bold)),
+          DropdownButtonFormField<String>(
+            value: _ttsVoice,
+            items: const [
+              DropdownMenuItem(value: 'default', child: Text('Default System')),
+              DropdownMenuItem(value: 'male', child: Text('Pria (Male)')),
+              DropdownMenuItem(value: 'female', child: Text('Wanita (Female)')),
+            ],
+            onChanged: (val) => setState(() => _ttsVoice = val!),
           ),
 
           const Divider(height: 30, color: Colors.white24),
@@ -117,7 +141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
           const SizedBox(height: 12),
-          TextField(controller: _systemPromptController, maxLines: 3, decoration: InputDecoration(hintText: 'Atau ketik instruksi kustom di sini...', filled: true, fillColor: const Color(0xFF2C2C2C), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
+          TextField(controller: _systemPromptController, maxLines: 3, decoration: InputDecoration(hintText: 'Atau ketik instruksi kustom...', filled: true, fillColor: const Color(0xFF2C2C2C), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
           
           const Divider(height: 30, color: Colors.white24),
           const Text('API Key OpenRouter', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -125,9 +149,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextField(controller: _apiKeyController, obscureText: true, decoration: InputDecoration(hintText: 'sk-or-v1-...', filled: true, fillColor: const Color(0xFF2C2C2C), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
           const SizedBox(height: 24),
           ElevatedButton(onPressed: _saveSettings, style: ElevatedButton.styleFrom(backgroundColor: Color(_accentColorValue), padding: const EdgeInsets.symmetric(vertical: 16)), child: const Text('Simpan Semua Pengaturan')),
-          
-          const Divider(height: 40, color: Colors.white24),
-          OutlinedButton(onPressed: _clearHistory, style: OutlinedButton.styleFrom(foregroundColor: Colors.redAccent, side: const BorderSide(color: Colors.redAccent)), child: const Text('Hapus Semua Riwayat Chat')),
         ],
       ),
     );
