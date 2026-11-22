@@ -21,6 +21,15 @@ class AIService {
 
     final prefs = await SharedPreferences.getInstance();
     final systemPrompt = prefs.getString('system_prompt') ?? '';
+    final temperature = prefs.getDouble('temperature') ?? 0.7;
+
+    // FITUR BARU: Cek jika user minta gambar
+    if (messages.last['content']!.startsWith('/image ')) {
+      final prompt = messages.last['content']!.replaceFirst('/image ', '');
+      // Menggunakan Pollinations.ai (Gratis, tanpa API Key)
+      final imageUrl = 'https://image.pollinations.ai/prompt/${Uri.encodeComponent(prompt)}?width=1024&height=1024&nologo=true';
+      return '![Gambar AI]($imageUrl)';
+    }
 
     List<Map<String, String>> finalMessages = [];
     if (systemPrompt.isNotEmpty) {
@@ -38,6 +47,7 @@ class AIService {
         body: jsonEncode({
           'model': _getBackendModel(modelId),
           'messages': finalMessages,
+          'temperature': temperature, // FITUR BARU: Suhu Kreativitas
         }),
       );
 

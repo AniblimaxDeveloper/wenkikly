@@ -3,7 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsScreen extends StatefulWidget {
   final Function(bool) onThemeChanged;
-  const SettingsScreen({super.key, required this.onThemeChanged});
+  final Function(bool) onBiometricChanged;
+  const SettingsScreen({super.key, required this.onThemeChanged, required this.onBiometricChanged});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -13,6 +14,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _systemPromptController = TextEditingController();
   bool _isDarkMode = true;
+  bool _isBiometricEnabled = false;
+  double _temperature = 0.7;
   String _selectedPersona = 'default';
 
   final Map<String, String> _personas = {
@@ -20,7 +23,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'programmer': 'Kamu adalah programmer senior. Jawab dengan kode yang bersih, efisien, dan berikan penjelasan singkat.',
     'writer': 'Kamu adalah penulis kreatif profesional. Gunakan bahasa yang indah, imajinatif, dan menarik.',
     'teacher': 'Kamu adalah guru yang sabar dan pintar. Jelaskan konsep rumit dengan analogi sederhana yang mudah dipahami.',
-    'translator': 'Kamu adalah penerjemah bahasa profesional. Terjemahkan teks dengan akurat sesuai konteks budaya.',
   };
 
   @override
@@ -35,8 +37,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _apiKeyController.text = prefs.getString('custom_api_key') ?? '';
       _systemPromptController.text = prefs.getString('system_prompt') ?? '';
       _isDarkMode = prefs.getBool('is_dark_mode') ?? true;
+      _isBiometricEnabled = prefs.getBool('biometric_enabled') ?? false;
+      _temperature = prefs.getDouble('temperature') ?? 0.7;
       
-      // Cek apakah prompt saat ini cocok dengan preset
       final currentPrompt = _systemPromptController.text;
       _selectedPersona = _personas.entries.firstWhere(
         (e) => e.value == currentPrompt, 
@@ -50,8 +53,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setString('custom_api_key', _apiKeyController.text.trim());
     await prefs.setString('system_prompt', _systemPromptController.text.trim());
     await prefs.setBool('is_dark_mode', _isDarkMode);
+    await prefs.setBool('biometric_enabled', _isBiometricEnabled);
+    await prefs.setDouble('temperature', _temperature);
     
     widget.onThemeChanged(_isDarkMode);
+    widget.onBiometricChanged(_isBiometricEnabled);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pengaturan berhasil disimpan!')));
       Navigator.pop(context);
@@ -74,15 +80,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           SwitchListTile(
-            title: const Text('Mode Gelap (Dark Mode)', style: TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: const Text('Sesuaikan tema aplikasi'),
+            title: const Text('Mode Gelap (Dark Mode)'),
             value: _isDarkMode,
             activeColor: Colors.deepPurple,
             onChanged: (val) => setState(() => _isDarkMode = val),
           ),
-          const Divider(height: 30, color: Colors.white24),
+          SwitchListTile(
+            title: const Text('Kunci Biometrik (Sidik Jari)'),
+            subtitle: const Text('Minta sidik jari saat membuka aplikasi'),
+            value: _isBiometricEnabled,
+            activeColor: Colors.deepPurple,
+            onChanged: (val) => setState(() => _isBiometricEnabled = val),
+          ),
           
-          const Text('Persona AI (System Prompt)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const Divider(height: 30, color: Colors.white24),
+          const Text('Kreativitas AI (Temperature)', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('Semakin tinggi, AI semakin kreatif. Semakin rendah, AI semakin fokus dan faktual.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+          Slider(
+            value: _temperature,
+            min: 0.0,
+            max: 1.5,
+            divisions: 15,
+            label: _temperature.toStringAsFixed(1),
+            activeColor: Colors.deepPurple,
+            onChanged: (val) => setState(() => _temperature = val),
+          ),
+
+          const Divider(height: 30, color: Colors.white24),
+          const Text('Persona AI (System Prompt)', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             value: _selectedPersona == 'custom' ? null : _selectedPersona,
@@ -115,7 +140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           
           const Divider(height: 30, color: Colors.white24),
-          const Text('API Key OpenRouter', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const Text('API Key OpenRouter', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           TextField(
             controller: _apiKeyController,
@@ -133,7 +158,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, padding: const EdgeInsets.symmetric(vertical: 16)),
             child: const Text('Simpan Semua Pengaturan'),
           ),
-          
           const Divider(height: 40, color: Colors.white24),
           OutlinedButton(
             onPressed: _clearHistory,

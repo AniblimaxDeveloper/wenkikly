@@ -7,6 +7,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:intl/intl.dart';
+import 'package:local_auth/local_auth.dart';
 import 'models/ai_model.dart';
 import 'models/chat_session.dart';
 import 'services/ai_service.dart';
@@ -25,51 +26,87 @@ class WenkiklyApp extends StatefulWidget {
 
 class _WenkiklyAppState extends State<WenkiklyApp> {
   bool _isDarkMode = true;
+  bool _isBiometricEnabled = false;
+  bool _isAuthenticated = false;
+  final LocalAuthentication auth = LocalAuthentication();
 
   @override
   void initState() {
     super.initState();
-    _loadTheme();
+    _loadSettings();
   }
 
-  void _loadTheme() async {
+  Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() => _isDarkMode = prefs.getBool('is_dark_mode') ?? true);
+    setState(() {
+      _isDarkMode = prefs.getBool('is_dark_mode') ?? true;
+      _isBiometricEnabled = prefs.getBool('biometric_enabled') ?? false;
+    });
+    
+    if (_isBiometricEnabled) {
+      _authenticate();
+    } else {
+      setState(() => _isAuthenticated = true);
+    }
   }
 
-  void _changeTheme(bool isDark) {
-    setState(() => _isDarkMode = isDark);
+  Future<void> _authenticate() async {
+    try {
+      bool authenticated = await auth.authenticate(
+        localizedReason: 'Pindai sidik jari untuk membuka Wenkikly AI',
+        options: const AuthenticationOptions(stickyAuth: true, biometricOnly: true),
+      );
+      setState(() => _isAuthenticated = authenticated);
+    } catch (e) {
+      setState(() => _isAuthenticated = false);
+    }
   }
+
+  void _changeTheme(bool isDark) => setState(() => _isDarkMode = isDark);
+  void _changeBiometric(bool enabled) => setState(() => _isBiometricEnabled = enabled);
 
   @override
   Widget build(BuildContext context) {
+    if (!_isAuthenticated) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData.dark(),
+        home: Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lock, size: 80, color: Colors.deepPurple),
+                const SizedBox(height: 20),
+                const Text('Wenkikly Terkunci', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: _authenticate,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
+                  child: const Text('Buka dengan Sidik Jari'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return MaterialApp(
       title: 'Wenkikly AI',
       debugShowCheckedModeBanner: false,
       themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      theme: ThemeData(
-        brightness: Brightness.light,
-        useMaterial3: true,
-        textTheme: GoogleFonts.interTextTheme(ThemeData.light().textTheme),
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        appBarTheme: const AppBarTheme(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
-      ),
-      darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        useMaterial3: true,
-        textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark),
-        scaffoldBackgroundColor: const Color(0xFF0F0F0F),
-        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF1A1A1A), foregroundColor: Colors.white, elevation: 0),
-      ),
-      home: ChatScreen(onThemeChanged: _changeTheme),
+      theme: ThemeData(brightness: Brightness.light, useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple), appBarTheme: const AppBarTheme(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0)),
+      darkTheme: ThemeData(brightness: Brightness.dark, useMaterial3: true, textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme), colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark), scaffoldBackgroundColor: const Color(0xFF0F0F0F), appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF1A1A1A), foregroundColor: Colors.white, elevation: 0)),
+      home: ChatScreen(onThemeChanged: _changeTheme, onBiometricChanged: _changeBiometric),
     );
   }
 }
 
 class ChatScreen extends StatefulWidget {
   final Function(bool) onThemeChanged;
-  const ChatScreen({super.key, required this.onThemeChanged});
+  final Function(bool) onBiometricChanged;
+  const ChatScreen({super.key, required this.onThemeChanged, required this.onBiometricChanged});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -151,7 +188,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _speak(String text) async {
-    String cleanText = text.replaceAll(RegExp(r'[*#`_]'), ''); 
+    String cleanText = text.replaceAll(RegExp(r'[*#`_]'), '').replaceAll(RegExp(r'!\[.*?\]\(.*?\)'), ''); // Hapus URL gambar
     await _flutterTts.speak(cleanText);
   }
 
@@ -197,13 +234,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     if (!_savedPrompts.contains(text)) {
-      setState(() {
-        _savedPrompts.add(text);
-      });
+      setState(() { _savedPrompts.add(text); });
       await prefs.setStringList('saved_prompts', _savedPrompts);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Prompt disimpan!')));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Prompt disimpan!')));
     }
   }
 
@@ -227,10 +260,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   Navigator.pop(context);
                 },
               ),
-              onTap: () {
-                setState(() { _controller.text = prompt; });
-                Navigator.pop(context);
-              },
+              onTap: () { setState(() { _controller.text = prompt; }); Navigator.pop(context); },
             )).toList(),
       ),
     );
@@ -249,11 +279,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (_currentSession!.messages.isEmpty) {
         _currentSession!.title = messageText.length > 25 ? '${messageText.substring(0, 25)}...' : messageText;
       }
-      _currentSession!.messages.add({
-        'role': 'user', 
-        'content': messageText,
-        'timestamp': DateTime.now().toIso8601String()
-      });
+      _currentSession!.messages.add({'role': 'user', 'content': messageText, 'timestamp': DateTime.now().toIso8601String()});
       _isLoading = true;
     });
     _controller.clear();
@@ -263,11 +289,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final reply = await _aiService.sendMessage(_currentSession!.messages, _selectedModel.id);
 
     setState(() {
-      _currentSession!.messages.add({
-        'role': 'assistant', 
-        'content': reply,
-        'timestamp': DateTime.now().toIso8601String()
-      });
+      _currentSession!.messages.add({'role': 'assistant', 'content': reply, 'timestamp': DateTime.now().toIso8601String()});
       _isLoading = false;
     });
     _scrollToBottom();
@@ -278,20 +300,13 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_currentSession == null || _currentSession!.messages.isEmpty) return;
     
     if (_currentSession!.messages.last['role'] == 'assistant') {
-      setState(() {
-        _currentSession!.messages.removeLast();
-        _isLoading = true;
-      });
+      setState(() { _currentSession!.messages.removeLast(); _isLoading = true; });
       _storageService.saveSessions(_sessions);
 
       final reply = await _aiService.sendMessage(_currentSession!.messages, _selectedModel.id);
 
       setState(() {
-        _currentSession!.messages.add({
-          'role': 'assistant', 
-          'content': reply,
-          'timestamp': DateTime.now().toIso8601String()
-        });
+        _currentSession!.messages.add({'role': 'assistant', 'content': reply, 'timestamp': DateTime.now().toIso8601String()});
         _isLoading = false;
       });
       _scrollToBottom();
@@ -374,7 +389,6 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
     final filteredSessions = _sessions.where((s) => s.title.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
 
     return Scaffold(
@@ -392,7 +406,7 @@ class _ChatScreenState extends State<ChatScreen> {
           IconButton(icon: const Icon(Icons.swap_horiz), tooltip: 'Ganti Model', onPressed: _showModelSelector),
           IconButton(
             icon: const Icon(Icons.settings), 
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(onThemeChanged: widget.onThemeChanged))).then((_) => _loadSettings())
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(onThemeChanged: widget.onThemeChanged, onBiometricChanged: widget.onBiometricChanged))).then((_) => _loadSettings())
           ),
         ],
       ),
@@ -412,12 +426,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     onChanged: (val) => setState(() => _searchQuery = val),
                     style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14),
                     decoration: InputDecoration(
-                      hintText: 'Cari obrolan...',
-                      prefixIcon: const Icon(Icons.search, size: 18),
-                      filled: true,
-                      fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                      hintText: 'Cari obrolan...', prefixIcon: const Icon(Icons.search, size: 18), filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.white, contentPadding: const EdgeInsets.symmetric(vertical: 0), border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
                     ),
                   ),
                 ],
@@ -435,15 +444,9 @@ class _ChatScreenState extends State<ChatScreen> {
                         title: Text(session.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                         selected: session.id == _currentSession?.id,
                         selectedTileColor: Colors.deepPurple.withOpacity(0.2),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
-                          onPressed: () => _deleteSession(session.id),
-                        ),
+                        trailing: IconButton(icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent), onPressed: () => _deleteSession(session.id)),
                         onTap: () {
-                          setState(() {
-                            _currentSession = session;
-                            _selectedModel = wenkiklyModels.firstWhere((m) => m.id == session.modelId, orElse: () => wenkiklyModels[0]);
-                          });
+                          setState(() { _currentSession = session; _selectedModel = wenkiklyModels.firstWhere((m) => m.id == session.modelId, orElse: () => wenkiklyModels[0]); });
                           Navigator.pop(context);
                         },
                       );
@@ -469,6 +472,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                     Icon(Icons.auto_awesome, size: 64, color: Colors.deepPurple.withOpacity(0.5)),
                                     const SizedBox(height: 16),
                                     Text('Mulai percakapan dengan ${_selectedModel.name}', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)),
+                                    const SizedBox(height: 8),
+                                    const Text('Trik: Ketik /image [deskripsi] untuk membuat gambar!', style: TextStyle(fontSize: 12, color: Colors.deepPurpleAccent)),
                                     const SizedBox(height: 24),
                                     Wrap(
                                       spacing: 8,
@@ -494,11 +499,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                 final isUser = msg['role'] == 'user';
                                 final isLastMessage = index == _currentSession!.messages.length - 1;
                                 
-                                // FIX: Tambahkan ! (null check) pada msg['timestamp']
-                                final timeStr = msg['timestamp'] != null 
-                                  ? DateFormat('HH:mm').format(DateTime.parse(msg['timestamp']!)) 
-                                  : '';
+                                final timeStr = msg['timestamp'] != null ? DateFormat('HH:mm').format(DateTime.parse(msg['timestamp']!)) : '';
                                 final tokenEstimate = (msg['content']!.length / 4).ceil();
+                                final isImageUrl = msg['content']!.contains('image.pollinations.ai');
                                 
                                 return Align(
                                   alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -509,26 +512,34 @@ class _ChatScreenState extends State<ChatScreen> {
                                     decoration: BoxDecoration(
                                       color: isUser ? Colors.deepPurple.shade700 : (isDark ? const Color(0xFF2C2C2C) : Colors.grey[200]),
                                       borderRadius: BorderRadius.only(
-                                        topLeft: const Radius.circular(16),
-                                        topRight: const Radius.circular(16),
-                                        bottomLeft: isUser ? const Radius.circular(16) : Radius.zero,
-                                        bottomRight: isUser ? Radius.zero : const Radius.circular(16),
+                                        topLeft: const Radius.circular(16), topRight: const Radius.circular(16),
+                                        bottomLeft: isUser ? const Radius.circular(16) : Radius.zero, bottomRight: isUser ? Radius.zero : const Radius.circular(16),
                                       ),
                                     ),
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        isUser 
-                                          ? SelectableText(msg['content']!, style: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87))
-                                          : MarkdownBody(
+                                        if (isImageUrl)
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(8),
+                                            child: Image.network(
+                                              msg['content']!.split('(')[1].split(')')[0], // Ekstrak URL
+                                              fit: BoxFit.cover,
+                                              loadingBuilder: (context, child, loadingProgress) {
+                                                if (loadingProgress == null) return child;
+                                                return const Center(child: CircularProgressIndicator());
+                                              },
+                                            ),
+                                          )
+                                        else if (isUser) 
+                                          SelectableText(msg['content']!, style: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87))
+                                        else
+                                          MarkdownBody(
                                               data: msg['content']!,
                                               styleSheet: MarkdownStyleSheet(
                                                 p: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87),
                                                 code: const TextStyle(backgroundColor: Colors.black45, color: Colors.greenAccent, fontFamily: 'monospace'),
-                                                codeblockDecoration: BoxDecoration(
-                                                  color: Colors.black87,
-                                                  borderRadius: BorderRadius.circular(8),
-                                                ),
+                                                codeblockDecoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8)),
                                               ),
                                             ),
                                         const SizedBox(height: 8),
@@ -583,19 +594,13 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-                        border: Border(top: BorderSide(color: isDark ? Colors.white12 : Colors.black12)),
-                      ),
+                      decoration: BoxDecoration(color: isDark ? const Color(0xFF1A1A1A) : Colors.white, border: Border(top: BorderSide(color: isDark ? Colors.white12 : Colors.black12))),
                       child: SafeArea(
                         child: Row(
                           children: [
                             CircleAvatar(
                               backgroundColor: _isListening ? Colors.redAccent : (isDark ? const Color(0xFF2C2C2C) : Colors.grey[300]),
-                              child: IconButton(
-                                icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.white : (isDark ? Colors.white54 : Colors.black54), size: 20),
-                                onPressed: _listen,
-                              ),
+                              child: IconButton(icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.white : (isDark ? Colors.white54 : Colors.black54), size: 20), onPressed: _listen),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
@@ -603,29 +608,18 @@ class _ChatScreenState extends State<ChatScreen> {
                                 controller: _controller,
                                 style: TextStyle(color: isDark ? Colors.white : Colors.black),
                                 maxLength: 4000,
-                                buildCounter: (context, {required currentLength, required isFocused, maxLength}) {
-                                  return Text('$currentLength/$maxLength', style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : Colors.black38));
-                                },
+                                buildCounter: (context, {required currentLength, required isFocused, maxLength}) => Text('$currentLength/$maxLength', style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : Colors.black38)),
                                 decoration: InputDecoration(
                                   hintText: _isListening ? 'Mendengarkan...' : 'Tanya ${_selectedModel.name}...',
                                   hintStyle: TextStyle(color: _isListening ? Colors.redAccent : (isDark ? Colors.white54 : Colors.black54)),
-                                  filled: true,
-                                  fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
+                                  filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                                   contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                                   suffixIcon: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      IconButton(
-                                        icon: const Icon(Icons.bookmark_add_outlined, size: 20, color: Colors.deepPurpleAccent),
-                                        tooltip: 'Simpan Prompt',
-                                        onPressed: _savePrompt,
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(Icons.list, size: 20, color: Colors.grey),
-                                        tooltip: 'Prompt Tersimpan',
-                                        onPressed: _showSavedPrompts,
-                                      ),
+                                      IconButton(icon: const Icon(Icons.bookmark_add_outlined, size: 20, color: Colors.deepPurpleAccent), tooltip: 'Simpan Prompt', onPressed: _savePrompt),
+                                      IconButton(icon: const Icon(Icons.list, size: 20, color: Colors.grey), tooltip: 'Prompt Tersimpan', onPressed: _showSavedPrompts),
                                     ],
                                   ),
                                 ),
@@ -635,10 +629,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             const SizedBox(width: 8),
                             CircleAvatar(
                               backgroundColor: Colors.deepPurple,
-                              child: IconButton(
-                                icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                                onPressed: _isLoading ? null : () => _sendMessage(),
-                              ),
+                              child: IconButton(icon: const Icon(Icons.send, color: Colors.white, size: 20), onPressed: _isLoading ? null : () => _sendMessage()),
                             ),
                           ],
                         ),
@@ -648,13 +639,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 if (_showScrollToBottom)
                   Positioned(
-                    bottom: 80,
-                    right: 16,
-                    child: FloatingActionButton.small(
-                      backgroundColor: Colors.deepPurple,
-                      onPressed: _scrollToBottom,
-                      child: const Icon(Icons.arrow_downward, color: Colors.white),
-                    ),
+                    bottom: 80, right: 16,
+                    child: FloatingActionButton.small(backgroundColor: Colors.deepPurple, onPressed: _scrollToBottom, child: const Icon(Icons.arrow_downward, color: Colors.white)),
                   ),
               ],
             ),
