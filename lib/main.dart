@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:markdown/markdown.dart' as md; // <-- TAMBAHAN IMPORT INI
 import 'package:google_fonts/google_fonts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
@@ -134,7 +135,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isListening = false;
   bool _isZenMode = false;
   bool _isAutoTts = false;
-  bool _isEnhancing = false; // State untuk Prompt Enhancer
+  bool _isEnhancing = false;
 
   List<ChatSession> _sessions = [];
   ChatSession? _currentSession;
@@ -259,7 +260,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // FITUR BARU: Prompt Enhancer
   Future<void> _enhanceCurrentPrompt() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
@@ -436,7 +436,6 @@ class _ChatScreenState extends State<ChatScreen> {
       for (var msg in _currentSession!.messages) { totalTokens += ((msg['content']?.length ?? 0) / 4).ceil(); }
     }
 
-    // Dictionary sederhana untuk dwibahasa
     final isEn = widget.language == 'en';
     final txtNewChat = isEn ? 'New Chat' : 'Chat Baru';
     final txtSettings = isEn ? 'Settings' : 'Pengaturan';
@@ -559,7 +558,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                                 data: msg['content']!,
                                                 styleSheet: MarkdownStyleSheet(p: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87)),
                                                 builders: {
-                                                  // FITUR BARU: Syntax Highlighting
                                                   'code': HighlightCodeBuilder(),
                                                 },
                                               ),
@@ -625,7 +623,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                           suffixIcon: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              // FITUR BARU: Prompt Enhancer (Magic Wand)
                                               _isEnhancing 
                                                 ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)))
                                                 : IconButton(icon: const Icon(Icons.auto_fix_high, size: 20, color: Colors.amberAccent), tooltip: 'Enhance Prompt', onPressed: _enhanceCurrentPrompt),
@@ -655,7 +652,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-// FITUR BARU: Builder untuk Syntax Highlighting
 class HighlightCodeBuilder extends MarkdownElementBuilder {
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
