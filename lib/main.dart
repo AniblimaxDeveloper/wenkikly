@@ -371,59 +371,10 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  // FITUR BARU: Custom Code Block Builder untuk tombol Copy
-  Widget _buildCodeBlock(BuildContext context, String code, String? language) {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: const BoxDecoration(
-              color: Color(0xFF2D2D2D),
-              borderRadius: BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(language?.toUpperCase() ?? 'CODE', style: const TextStyle(fontSize: 10, color: Colors.white54, fontWeight: FontWeight.bold)),
-                InkWell(
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: code));
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kode disalin!'), duration: Duration(seconds: 1)));
-                  },
-                  child: const Row(
-                    children: [
-                      Icon(Icons.copy, size: 14, color: Colors.white54),
-                      SizedBox(width: 4),
-                      Text('Copy', style: TextStyle(fontSize: 10, color: Colors.white54)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.all(12),
-            child: Text(code, style: const TextStyle(color: Colors.greenAccent, fontFamily: 'monospace', fontSize: 13)),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     
-    // FITUR BARU: Logika Filter Pencarian
     final filteredSessions = _sessions.where((s) => s.title.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
 
     return Scaffold(
@@ -456,7 +407,6 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: [
                   Text('Riwayat Obrolan', style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 12),
-                  // FITUR BARU: Kolom Pencarian
                   TextField(
                     controller: _searchController,
                     onChanged: (val) => setState(() => _searchQuery = val),
@@ -543,8 +493,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                 final msg = _currentSession!.messages[index];
                                 final isUser = msg['role'] == 'user';
                                 final isLastMessage = index == _currentSession!.messages.length - 1;
+                                
+                                // FIX: Tambahkan ! (null check) pada msg['timestamp']
                                 final timeStr = msg['timestamp'] != null 
-                                  ? DateFormat('HH:mm').format(DateTime.parse(msg['timestamp'])) 
+                                  ? DateFormat('HH:mm').format(DateTime.parse(msg['timestamp']!)) 
                                   : '';
                                 final tokenEstimate = (msg['content']!.length / 4).ceil();
                                 
@@ -572,16 +524,17 @@ class _ChatScreenState extends State<ChatScreen> {
                                               data: msg['content']!,
                                               styleSheet: MarkdownStyleSheet(
                                                 p: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87),
+                                                code: const TextStyle(backgroundColor: Colors.black45, color: Colors.greenAccent, fontFamily: 'monospace'),
+                                                codeblockDecoration: BoxDecoration(
+                                                  color: Colors.black87,
+                                                  borderRadius: BorderRadius.circular(8),
+                                                ),
                                               ),
-                                              builders: {
-                                                'code': CodeElementBuilder(_buildCodeBlock),
-                                              },
                                             ),
                                         const SizedBox(height: 8),
                                         Row(
                                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                           children: [
-                                            // FITUR BARU: Timestamp & Estimasi Token
                                             Row(
                                               children: [
                                                 Text(timeStr, style: const TextStyle(fontSize: 10, color: Colors.grey)),
@@ -660,7 +613,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                   fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                                   contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                  // FITUR BARU: Tombol Bookmark Prompt
                                   suffixIcon: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
@@ -707,20 +659,5 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
     );
-  }
-}
-
-// FITUR BARU: Class untuk Custom Code Block
-class CodeElementBuilder extends MarkdownElementBuilder {
-  final Widget Function(BuildContext, String, String?) builder;
-  CodeElementBuilder(this.builder);
-
-  @override
-  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
-    var language = '';
-    if (element.attributes['class'] != null) {
-      language = element.attributes['class']!.substring(9); // remove 'language-'
-    }
-    return builder(context!, element.textContent, language);
   }
 }
