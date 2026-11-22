@@ -16,8 +16,18 @@ class AIService {
   Future<String> sendMessage(List<Map<String, String>> messages, String modelId) async {
     final apiKey = await _getApiKey();
     if (apiKey.isEmpty) {
-      return 'Error: API Key tidak ditemukan. Silakan buka menu Settings (ikon gear) dan masukkan API Key OpenRouter Anda.';
+      return 'Error: API Key tidak ditemukan. Silakan buka menu Settings dan masukkan API Key OpenRouter Anda.';
     }
+
+    final prefs = await SharedPreferences.getInstance();
+    final systemPrompt = prefs.getString('system_prompt') ?? '';
+
+    // Menyisipkan System Prompt ke dalam percakapan
+    List<Map<String, String>> finalMessages = [];
+    if (systemPrompt.isNotEmpty) {
+      finalMessages.add({'role': 'system', 'content': systemPrompt});
+    }
+    finalMessages.addAll(messages);
 
     try {
       final response = await http.post(
@@ -27,8 +37,8 @@ class AIService {
           'Authorization': 'Bearer $apiKey',
         },
         body: jsonEncode({
-          'model': _getBackendModel(modelId), 
-          'messages': messages,
+          'model': _getBackendModel(modelId),
+          'messages': finalMessages,
         }),
       );
 
@@ -44,7 +54,6 @@ class AIService {
   }
 
   String _getBackendModel(String whenModel) {
-    // Update model ID ke versi terbaru (3.1)
     if (whenModel.contains('Free') || whenModel.contains('when-1') || whenModel.contains('when-2')) {
       return 'meta-llama/llama-3.1-8b-instruct'; 
     } else if (whenModel.contains('when-go') || whenModel.contains('when-plus')) {
