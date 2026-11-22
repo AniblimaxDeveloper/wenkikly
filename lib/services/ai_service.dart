@@ -1,14 +1,22 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AIService {
-  static const String _apiKey = String.fromEnvironment('OPENROUTER_API_KEY');
+  static const String _envApiKey = String.fromEnvironment('OPENROUTER_API_KEY');
   static const String _apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
 
-  // Parameter modelId ditambahkan
+  Future<String> _getApiKey() async {
+    final prefs = await SharedPreferences.getInstance();
+    final localKey = prefs.getString('custom_api_key');
+    if (localKey != null && localKey.isNotEmpty) return localKey;
+    return _envApiKey;
+  }
+
   Future<String> sendMessage(List<Map<String, String>> messages, String modelId) async {
-    if (_apiKey.isEmpty) {
-      return 'Error: API Key tidak ditemukan. Pastikan OPENROUTER_API_KEY sudah diatur.';
+    final apiKey = await _getApiKey();
+    if (apiKey.isEmpty) {
+      return 'Error: API Key tidak ditemukan. Silakan buka menu Settings (ikon gear) dan masukkan API Key OpenRouter Anda.';
     }
 
     try {
@@ -16,11 +24,9 @@ class AIService {
         Uri.parse(_apiUrl),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
+          'Authorization': 'Bearer $apiKey',
         },
         body: jsonEncode({
-          // Kita petakan ID WHEN ke model API asli (misal: llama-3 atau gpt-4)
-          // Untuk aplikasi demo ini, kita gunakan model open-source gratis/berbayar dari OpenRouter
           'model': _getBackendModel(modelId), 
           'messages': messages,
         }),
@@ -37,15 +43,13 @@ class AIService {
     }
   }
 
-  // Fungsi internal untuk memetakan WHEN ke model sungguhan
   String _getBackendModel(String whenModel) {
-    // Kita gunakan model yang sangat murah/gratis untuk Free, dan model premium untuk Pro/Ultra
     if (whenModel.contains('Free') || whenModel.contains('when-1') || whenModel.contains('when-2')) {
-      return 'meta-llama/llama-3-8b-instruct'; // Model gratis
+      return 'meta-llama/llama-3-8b-instruct';
     } else if (whenModel.contains('when-go') || whenModel.contains('when-plus')) {
-      return 'meta-llama/llama-3-70b-instruct'; // Model menengah
+      return 'meta-llama/llama-3-70b-instruct';
     } else {
-      return 'openai/gpt-4o-mini'; // Model canggih untuk Pro/Ultra (butuh saldo di OpenRouter)
+      return 'openai/gpt-4o-mini';
     }
   }
 }

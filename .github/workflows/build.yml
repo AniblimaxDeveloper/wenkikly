@@ -27,7 +27,7 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Generate App Icons (LOGO ASLI)
+      - name: Generate App Icons (LOGO BARU)
         run: dart run flutter_launcher_icons
 
       - name: Build Release APK

@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:flutter_tts/flutter_tts.dart';
 import 'models/ai_model.dart';
 import 'models/chat_session.dart';
 import 'services/ai_service.dart';
 import 'services/storage_service.dart';
+import 'screens/settings_screen.dart';
 
 void main() {
   runApp(const WenkiklyApp());
@@ -51,6 +53,11 @@ class _ChatScreenState extends State<ChatScreen> {
   final AIService _aiService = AIService();
   final StorageService _storageService = StorageService();
 
+  // Fitur Suara
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final FlutterTts _flutterTts = FlutterTts();
+  bool _isListening = false;
+
   List<ChatSession> _sessions = [];
   ChatSession? _currentSession;
   bool _isLoading = false;
@@ -59,7 +66,39 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    _initTts();
     _loadHistory();
+  }
+
+  void _initTts() async {
+    await _flutterTts.setLanguage("id-ID");
+    await _flutterTts.setSpeechRate(0.5);
+  }
+
+  void _listen() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (val) => print('onStatus: $val'),
+        onError: (val) => print('onError: $val'),
+      );
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (val) => setState(() {
+            _controller.text = val.recognizedWords;
+          }),
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  void _speak(String text) async {
+    // Membersihkan simbol markdown sebelum dibacakan
+    String cleanText = text.replaceAll(RegExp(r'[*#`_]'), ''); 
+    await _flutterTts.speak(cleanText);
   }
 
   Future<void> _loadHistory() async {
@@ -219,6 +258,11 @@ class _ChatScreenState extends State<ChatScreen> {
         actions: [
           IconButton(icon: const Icon(Icons.add_comment_outlined), tooltip: 'Chat Baru', onPressed: _createNewSession),
           IconButton(icon: const Icon(Icons.swap_horiz), tooltip: 'Ganti Model', onPressed: _showModelSelector),
+          IconButton(
+            icon: const Icon(Icons.settings), 
+            tooltip: 'Pengaturan', 
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())).then((_) => _loadHistory())
+          ),
         ],
       ),
       drawer: Drawer(
@@ -266,6 +310,8 @@ class _ChatScreenState extends State<ChatScreen> {
                               Icon(Icons.auto_awesome, size: 64, color: Colors.deepPurple.withOpacity(0.5)),
                               const SizedBox(height: 16),
                               Text('Mulai percakapan dengan ${_selectedModel.name}', style: const TextStyle(color: Colors.white54)),
+                              const SizedBox(height: 8),
+                              const Text('Gunakan ikon mikrofon untuk bicara', style: TextStyle(color: Colors.white38, fontSize: 12)),
                             ],
                           ),
                         )
@@ -307,8 +353,17 @@ class _ChatScreenState extends State<ChatScreen> {
                                     Row(
                                       mainAxisAlignment: MainAxisAlignment.end,
                                       children: [
+                                        if (!isUser) ...[
+                                          IconButton(
+                                            icon: const Icon(Icons.volume_up, size: 16, color: Colors.white54),
+                                            tooltip: 'Bacakan',
+                                            onPressed: () => _speak(msg['content']!),
+                                          ),
+                                          const SizedBox(width: 8),
+                                        ],
                                         IconButton(
                                           icon: const Icon(Icons.copy, size: 16, color: Colors.white54),
+                                          tooltip: 'Salin',
                                           onPressed: () {
                                             Clipboard.setData(ClipboardData(text: msg['content']!));
                                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disalin ke clipboard'), duration: Duration(seconds: 1)));
@@ -344,13 +399,23 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: SafeArea(
                     child: Row(
                       children: [
+                        // FITUR BARU: Tombol Mikrofon
+                        CircleAvatar(
+                          backgroundColor: _isListening ? Colors.redAccent : const Color(0xFF2C2C2C),
+                          child: IconButton(
+                            icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.white : Colors.white54, size: 20),
+                            onPressed: _listen,
+                            tooltip: 'Bicara ke AI',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: TextField(
                             controller: _controller,
                             style: const TextStyle(color: Colors.white),
                             decoration: InputDecoration(
-                              hintText: 'Tanya ${_selectedModel.name}...',
-                              hintStyle: const TextStyle(color: Colors.white54),
+                              hintText: _isListening ? 'Mendengarkan...' : 'Tanya ${_selectedModel.name}...',
+                              hintStyle: TextStyle(color: _isListening ? Colors.redAccent : Colors.white54),
                               filled: true,
                               fillColor: const Color(0xFF2C2C2C),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
