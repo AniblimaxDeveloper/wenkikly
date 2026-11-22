@@ -1,0 +1,12 @@
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            android {
+                compileSdkVersion 34
+                defaultConfig {
+                    targetSdkVersion 34
+                }
+            }
+        }
+    }
+}
