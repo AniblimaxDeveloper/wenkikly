@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
+// import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -29,11 +29,11 @@ import 'screens/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await Firebase.initializeApp(); 
-  } catch (e) {
-    print('Firebase init failed. Error: $e');
-  }
+  // try {
+    // await Firebase.initializeApp(); 
+  // } catch (e) {
+    // print("Firebase init failed. Error: $e");
+  // }
   runApp(const WenkiklyApp());
 }
 
@@ -51,11 +51,11 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
   void initState() {
     super.initState();
     _checkLogin();
-  }
+  // }
 
   void _checkLogin() async {
     setState(() => _isLoggedIn = _authService.isLoggedIn());
-  }
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +75,7 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
         ? ChatScreen(onLogout: () { _authService.signOut(); _checkLogin(); })
         : AuthScreen(onLoginSuccess: _checkLogin),
     );
-  }
+  // }
 }
 
 class ChatScreen extends StatefulWidget {
@@ -131,7 +131,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (_scrollController.offset > 200 && !_showScrollToTop) setState(() => _showScrollToTop = true);
       if (_scrollController.offset <= 200 && _showScrollToTop) setState(() => _showScrollToTop = false);
     });
-  }
+  // }
 
   void _initTts() async => await _flutterTts.setLanguage("id-ID");
 
@@ -155,7 +155,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _createNewSession();
       }
     });
-  }
+  // }
 
   void _listen() async {
     if (!_isListening) {
@@ -168,25 +168,25 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() => _isListening = false);
       _speech.stop();
     }
-  }
+  // }
 
   void _speak(String text) async {
     String cleanText = text.replaceAll(RegExp(r'[*#`_]'), '').replaceAll(RegExp(r'!\[.*?\]\(.*?\)'), ''); 
     await _flutterTts.speak(cleanText);
-  }
+  // }
 
   void _haptic() { if (_isHaptics) HapticFeedback.lightImpact(); }
 
   Future<void> _pickImage() async {
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
     if (image != null) setState(() => _pickedImage = image);
-  }
+  // }
 
   void _createNewSession() {
     final newSession = ChatSession(id: DateTime.now().millisecondsSinceEpoch.toString(), title: 'Obrolan Baru', messages: [], modelId: _selectedModel.id);
     setState(() { _sessions.insert(0, newSession); _currentSession = newSession; _controller.clear(); _quotedMessage = ''; });
     _storageService.saveSessions(_sessions);
-  }
+  // }
 
   void _deleteSession(String id) {
     setState(() {
@@ -199,7 +199,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     });
     _storageService.saveSessions(_sessions);
-  }
+  // }
 
   Future<void> _enhanceCurrentPrompt() async {
     final text = _controller.text.trim();
@@ -210,7 +210,7 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() { _controller.text = enhanced; _isEnhancing = false; });
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Prompt disempurnakan!')));
     }
-  }
+  // }
 
   Future<void> _exportChat() async {
     if (_currentSession == null || _currentSession!.messages.isEmpty) return;
@@ -222,14 +222,14 @@ class _ChatScreenState extends State<ChatScreen> {
       await file.writeAsString(text);
       await Share.shareXFiles([XFile(file.path)], text: 'Ekspor Chat Wenkikly');
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
-  }
+  // }
 
   void _scrollToTop() => _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
     });
-  }
+  // }
 
   Future<void> _sendMessage({String? text}) async {
     final messageText = text ?? _controller.text.trim();
@@ -281,11 +281,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _storageService.saveSessions(_sessions);
     if (_isAutoScroll) _scrollToBottom();
     if (_isAutoTts && !reply.startsWith('Error')) _speak(reply);
-  }
+  // }
 
   void _showLimitDialog() {
     showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Limit Tercapai'), content: const Text('Batas pesan paket Free habis. Ganti ke Unlimited.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]));
-  }
+  // }
 
   void _showModelSelector() {
     showModalBottomSheet(
@@ -315,7 +315,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
-  }
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -531,7 +531,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
     );
-  }
+  // }
 }
 
 class HighlightCodeBuilder extends MarkdownElementBuilder {
@@ -546,5 +546,5 @@ class HighlightCodeBuilder extends MarkdownElementBuilder {
         padding: const EdgeInsets.all(12), textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 13),
       ),
     );
-  }
+  // }
 }
