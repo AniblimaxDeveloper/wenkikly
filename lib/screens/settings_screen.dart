@@ -16,6 +16,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isDarkMode = true;
   bool _isBiometricEnabled = false;
   double _temperature = 0.7;
+  int _accentColorValue = 0xFF673AB7; // Default Deep Purple
   String _selectedPersona = 'default';
 
   final Map<String, String> _personas = {
@@ -24,6 +25,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'writer': 'Kamu adalah penulis kreatif profesional. Gunakan bahasa yang indah, imajinatif, dan menarik.',
     'teacher': 'Kamu adalah guru yang sabar dan pintar. Jelaskan konsep rumit dengan analogi sederhana yang mudah dipahami.',
   };
+
+  final List<Color> _accentColors = [
+    Colors.deepPurple,
+    Colors.blue,
+    Colors.green,
+    Colors.orange,
+    Colors.red,
+    Colors.teal,
+  ];
 
   @override
   void initState() {
@@ -39,6 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _isDarkMode = prefs.getBool('is_dark_mode') ?? true;
       _isBiometricEnabled = prefs.getBool('biometric_enabled') ?? false;
       _temperature = prefs.getDouble('temperature') ?? 0.7;
+      _accentColorValue = prefs.getInt('accent_color') ?? 0xFF673AB7;
       
       final currentPrompt = _systemPromptController.text;
       _selectedPersona = _personas.entries.firstWhere(
@@ -55,6 +66,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setBool('is_dark_mode', _isDarkMode);
     await prefs.setBool('biometric_enabled', _isBiometricEnabled);
     await prefs.setDouble('temperature', _temperature);
+    await prefs.setInt('accent_color', _accentColorValue);
     
     widget.onThemeChanged(_isDarkMode);
     widget.onBiometricChanged(_isBiometricEnabled);
@@ -82,27 +94,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SwitchListTile(
             title: const Text('Mode Gelap (Dark Mode)'),
             value: _isDarkMode,
-            activeColor: Colors.deepPurple,
+            activeColor: Color(_accentColorValue),
             onChanged: (val) => setState(() => _isDarkMode = val),
           ),
           SwitchListTile(
             title: const Text('Kunci Biometrik (Sidik Jari)'),
             subtitle: const Text('Minta sidik jari saat membuka aplikasi'),
             value: _isBiometricEnabled,
-            activeColor: Colors.deepPurple,
+            activeColor: Color(_accentColorValue),
             onChanged: (val) => setState(() => _isBiometricEnabled = val),
           ),
           
           const Divider(height: 30, color: Colors.white24),
+          const Text('Warna Tema Aplikasi', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            children: _accentColors.map((color) {
+              return GestureDetector(
+                onTap: () => setState(() => _accentColorValue = color.value),
+                child: CircleAvatar(
+                  backgroundColor: color,
+                  radius: 20,
+                  child: _accentColorValue == color.value 
+                    ? const Icon(Icons.check, color: Colors.white, size: 20) 
+                    : null,
+                ),
+              );
+            }).toList(),
+          ),
+
+          const Divider(height: 30, color: Colors.white24),
           const Text('Kreativitas AI (Temperature)', style: TextStyle(fontWeight: FontWeight.bold)),
-          const Text('Semakin tinggi, AI semakin kreatif. Semakin rendah, AI semakin fokus dan faktual.', style: TextStyle(color: Colors.white54, fontSize: 12)),
           Slider(
             value: _temperature,
             min: 0.0,
             max: 1.5,
             divisions: 15,
             label: _temperature.toStringAsFixed(1),
-            activeColor: Colors.deepPurple,
+            activeColor: Color(_accentColorValue),
             onChanged: (val) => setState(() => _temperature = val),
           ),
 
@@ -155,7 +185,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: _saveSettings,
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, padding: const EdgeInsets.symmetric(vertical: 16)),
+            style: ElevatedButton.styleFrom(backgroundColor: Color(_accentColorValue), padding: const EdgeInsets.symmetric(vertical: 16)),
             child: const Text('Simpan Semua Pengaturan'),
           ),
           const Divider(height: 40, color: Colors.white24),

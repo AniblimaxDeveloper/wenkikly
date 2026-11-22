@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:intl/intl.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 import 'models/ai_model.dart';
 import 'models/chat_session.dart';
 import 'services/ai_service.dart';
@@ -28,6 +30,7 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
   bool _isDarkMode = true;
   bool _isBiometricEnabled = false;
   bool _isAuthenticated = false;
+  Color _accentColor = Colors.deepPurple;
   final LocalAuthentication auth = LocalAuthentication();
 
   @override
@@ -41,6 +44,7 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
     setState(() {
       _isDarkMode = prefs.getBool('is_dark_mode') ?? true;
       _isBiometricEnabled = prefs.getBool('biometric_enabled') ?? false;
+      _accentColor = Color(prefs.getInt('accent_color') ?? 0xFF673AB7);
     });
     
     if (_isBiometricEnabled) {
@@ -76,13 +80,13 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.lock, size: 80, color: Colors.deepPurple),
+                Icon(Icons.lock, size: 80, color: _accentColor),
                 const SizedBox(height: 20),
                 const Text('Wenkikly Terkunci', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 20),
                 ElevatedButton(
                   onPressed: _authenticate,
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
+                  style: ElevatedButton.styleFrom(backgroundColor: _accentColor),
                   child: const Text('Buka dengan Sidik Jari'),
                 ),
               ],
@@ -96,8 +100,20 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
       title: 'Wenkikly AI',
       debugShowCheckedModeBanner: false,
       themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      theme: ThemeData(brightness: Brightness.light, useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple), appBarTheme: const AppBarTheme(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0)),
-      darkTheme: ThemeData(brightness: Brightness.dark, useMaterial3: true, textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme), colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark), scaffoldBackgroundColor: const Color(0xFF0F0F0F), appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF1A1A1A), foregroundColor: Colors.white, elevation: 0)),
+      theme: ThemeData(
+        brightness: Brightness.light, 
+        useMaterial3: true, 
+        colorScheme: ColorScheme.fromSeed(seedColor: _accentColor), 
+        appBarTheme: const AppBarTheme(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0)
+      ),
+      darkTheme: ThemeData(
+        brightness: Brightness.dark, 
+        useMaterial3: true, 
+        textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme), 
+        colorScheme: ColorScheme.fromSeed(seedColor: _accentColor, brightness: Brightness.dark), 
+        scaffoldBackgroundColor: const Color(0xFF0F0F0F), 
+        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF1A1A1A), foregroundColor: Colors.white, elevation: 0)
+      ),
       home: ChatScreen(onThemeChanged: _changeTheme, onBiometricChanged: _changeBiometric),
     );
   }
@@ -122,6 +138,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final stt.SpeechToText _speech = stt.SpeechToText();
   final FlutterTts _flutterTts = FlutterTts();
   bool _isListening = false;
+  bool _isZenMode = false; // FITUR BARU: Zen Mode
 
   List<ChatSession> _sessions = [];
   ChatSession? _currentSession;
@@ -188,7 +205,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _speak(String text) async {
-    String cleanText = text.replaceAll(RegExp(r'[*#`_]'), '').replaceAll(RegExp(r'!\[.*?\]\(.*?\)'), ''); // Hapus URL gambar
+    String cleanText = text.replaceAll(RegExp(r'[*#`_]'), '').replaceAll(RegExp(r'!\[.*?\]\(.*?\)'), ''); 
     await _flutterTts.speak(cleanText);
   }
 
@@ -314,14 +331,23 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _exportChat() {
+  // FITUR BARU: Ekspor ke File .txt
+  Future<void> _exportChat() async {
     if (_currentSession == null || _currentSession!.messages.isEmpty) return;
     String text = "Wenkikly AI - ${_currentSession!.title}\n\n";
     for (var msg in _currentSession!.messages) {
       text += msg['role'] == 'user' ? "User: " : "AI: ";
       text += "${msg['content']}\n\n";
     }
-    Share.share(text);
+    
+    try {
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/Wenkikly_${_currentSession!.id}.txt');
+      await file.writeAsString(text);
+      await Share.shareXFiles([XFile(file.path)], text: 'Ekspor Chat Wenkikly');
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e')));
+    }
   }
 
   void _showLimitDialog() {
@@ -392,7 +418,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final filteredSessions = _sessions.where((s) => s.title.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
 
     return Scaffold(
-      appBar: AppBar(
+      // FITUR BARU: Zen Mode menyembunyikan AppBar
+      appBar: _isZenMode ? null : AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -458,191 +485,203 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: _currentSession == null
           ? const Center(child: CircularProgressIndicator())
-          : Stack(
-              children: [
-                Column(
-                  children: [
-                    Expanded(
-                      child: _currentSession!.messages.isEmpty
-                          ? Center(
-                              child: SingleChildScrollView(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.auto_awesome, size: 64, color: Colors.deepPurple.withOpacity(0.5)),
-                                    const SizedBox(height: 16),
-                                    Text('Mulai percakapan dengan ${_selectedModel.name}', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)),
-                                    const SizedBox(height: 8),
-                                    const Text('Trik: Ketik /image [deskripsi] untuk membuat gambar!', style: TextStyle(fontSize: 12, color: Colors.deepPurpleAccent)),
-                                    const SizedBox(height: 24),
-                                    Wrap(
-                                      spacing: 8,
-                                      runSpacing: 8,
-                                      alignment: WrapAlignment.center,
-                                      children: _quickPrompts.map((prompt) => ActionChip(
-                                        label: Text(prompt, style: const TextStyle(fontSize: 12)),
-                                        onPressed: () => _sendMessage(text: prompt),
-                                        backgroundColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
-                                        side: BorderSide.none,
-                                      )).toList(),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            )
-                          : ListView.builder(
-                              controller: _scrollController,
-                              padding: const EdgeInsets.all(16),
-                              itemCount: _currentSession!.messages.length,
-                              itemBuilder: (context, index) {
-                                final msg = _currentSession!.messages[index];
-                                final isUser = msg['role'] == 'user';
-                                final isLastMessage = index == _currentSession!.messages.length - 1;
-                                
-                                final timeStr = msg['timestamp'] != null ? DateFormat('HH:mm').format(DateTime.parse(msg['timestamp']!)) : '';
-                                final tokenEstimate = (msg['content']!.length / 4).ceil();
-                                final isImageUrl = msg['content']!.contains('image.pollinations.ai');
-                                
-                                return Align(
-                                  alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-                                  child: Container(
-                                    margin: const EdgeInsets.symmetric(vertical: 6),
-                                    padding: const EdgeInsets.all(12),
-                                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
-                                    decoration: BoxDecoration(
-                                      color: isUser ? Colors.deepPurple.shade700 : (isDark ? const Color(0xFF2C2C2C) : Colors.grey[200]),
-                                      borderRadius: BorderRadius.only(
-                                        topLeft: const Radius.circular(16), topRight: const Radius.circular(16),
-                                        bottomLeft: isUser ? const Radius.circular(16) : Radius.zero, bottomRight: isUser ? Radius.zero : const Radius.circular(16),
-                                      ),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        if (isImageUrl)
-                                          ClipRRect(
-                                            borderRadius: BorderRadius.circular(8),
-                                            child: Image.network(
-                                              msg['content']!.split('(')[1].split(')')[0], // Ekstrak URL
-                                              fit: BoxFit.cover,
-                                              loadingBuilder: (context, child, loadingProgress) {
-                                                if (loadingProgress == null) return child;
-                                                return const Center(child: CircularProgressIndicator());
-                                              },
-                                            ),
-                                          )
-                                        else if (isUser) 
-                                          SelectableText(msg['content']!, style: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87))
-                                        else
-                                          MarkdownBody(
-                                              data: msg['content']!,
-                                              styleSheet: MarkdownStyleSheet(
-                                                p: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87),
-                                                code: const TextStyle(backgroundColor: Colors.black45, color: Colors.greenAccent, fontFamily: 'monospace'),
-                                                codeblockDecoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8)),
-                                              ),
-                                            ),
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Text(timeStr, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                                                const SizedBox(width: 8),
-                                                Text('~$tokenEstimate tk', style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                                              ],
-                                            ),
-                                            Row(
-                                              children: [
-                                                if (!isUser) ...[
-                                                  IconButton(icon: const Icon(Icons.volume_up, size: 16, color: Colors.grey), onPressed: () => _speak(msg['content']!)),
-                                                  const SizedBox(width: 8),
-                                                  if (isLastMessage)
-                                                    IconButton(icon: const Icon(Icons.refresh, size: 16, color: Colors.deepPurpleAccent), onPressed: _regenerateResponse),
-                                                  const SizedBox(width: 8),
-                                                ],
-                                                IconButton(
-                                                  icon: const Icon(Icons.copy, size: 16, color: Colors.grey),
-                                                  onPressed: () {
-                                                    Clipboard.setData(ClipboardData(text: msg['content']!));
-                                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disalin'), duration: Duration(seconds: 1)));
-                                                  },
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        )
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                    if (_isLoading)
-                      Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepPurpleAccent)),
-                            const SizedBox(width: 12),
-                            Text('Wenkikly sedang mengetik...', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54, fontSize: 12)),
-                          ],
-                        ),
-                      ),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: isDark ? const Color(0xFF1A1A1A) : Colors.white, border: Border(top: BorderSide(color: isDark ? Colors.white12 : Colors.black12))),
-                      child: SafeArea(
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              backgroundColor: _isListening ? Colors.redAccent : (isDark ? const Color(0xFF2C2C2C) : Colors.grey[300]),
-                              child: IconButton(icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.white : (isDark ? Colors.white54 : Colors.black54), size: 20), onPressed: _listen),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: _controller,
-                                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                                maxLength: 4000,
-                                buildCounter: (context, {required currentLength, required isFocused, maxLength}) => Text('$currentLength/$maxLength', style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : Colors.black38)),
-                                decoration: InputDecoration(
-                                  hintText: _isListening ? 'Mendengarkan...' : 'Tanya ${_selectedModel.name}...',
-                                  hintStyle: TextStyle(color: _isListening ? Colors.redAccent : (isDark ? Colors.white54 : Colors.black54)),
-                                  filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                  suffixIcon: Row(
-                                    mainAxisSize: MainAxisSize.min,
+          : GestureDetector(
+              // FITUR BARU: Tap 2x untuk keluar dari Zen Mode
+              onDoubleTap: () => setState(() => _isZenMode = !_isZenMode),
+              child: Stack(
+                children: [
+                  Column(
+                    children: [
+                      Expanded(
+                        child: _currentSession!.messages.isEmpty
+                            ? Center(
+                                child: SingleChildScrollView(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      IconButton(icon: const Icon(Icons.bookmark_add_outlined, size: 20, color: Colors.deepPurpleAccent), tooltip: 'Simpan Prompt', onPressed: _savePrompt),
-                                      IconButton(icon: const Icon(Icons.list, size: 20, color: Colors.grey), tooltip: 'Prompt Tersimpan', onPressed: _showSavedPrompts),
+                                      Icon(Icons.auto_awesome, size: 64, color: Colors.deepPurple.withOpacity(0.5)),
+                                      const SizedBox(height: 16),
+                                      Text('Mulai percakapan dengan ${_selectedModel.name}', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)),
+                                      const SizedBox(height: 8),
+                                      const Text('Trik: Ketik /image [deskripsi] untuk membuat gambar!', style: TextStyle(fontSize: 12, color: Colors.deepPurpleAccent)),
+                                      const SizedBox(height: 24),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        alignment: WrapAlignment.center,
+                                        children: _quickPrompts.map((prompt) => ActionChip(
+                                          label: Text(prompt, style: const TextStyle(fontSize: 12)),
+                                          onPressed: () => _sendMessage(text: prompt),
+                                          backgroundColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
+                                          side: BorderSide.none,
+                                        )).toList(),
+                                      ),
                                     ],
                                   ),
                                 ),
-                                onSubmitted: (_) => _sendMessage(),
+                              )
+                            : ListView.builder(
+                                controller: _scrollController,
+                                padding: const EdgeInsets.all(16),
+                                itemCount: _currentSession!.messages.length,
+                                itemBuilder: (context, index) {
+                                  final msg = _currentSession!.messages[index];
+                                  final isUser = msg['role'] == 'user';
+                                  final isLastMessage = index == _currentSession!.messages.length - 1;
+                                  
+                                  final timeStr = msg['timestamp'] != null ? DateFormat('HH:mm').format(DateTime.parse(msg['timestamp']!)) : '';
+                                  final tokenEstimate = (msg['content']!.length / 4).ceil();
+                                  final isImageUrl = msg['content']!.contains('image.pollinations.ai');
+                                  
+                                  return Align(
+                                    alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.symmetric(vertical: 6),
+                                      padding: const EdgeInsets.all(12),
+                                      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
+                                      decoration: BoxDecoration(
+                                        color: isUser ? Colors.deepPurple.shade700 : (isDark ? const Color(0xFF2C2C2C) : Colors.grey[200]),
+                                        borderRadius: BorderRadius.only(
+                                          topLeft: const Radius.circular(16), topRight: const Radius.circular(16),
+                                          bottomLeft: isUser ? const Radius.circular(16) : Radius.zero, bottomRight: isUser ? Radius.zero : const Radius.circular(16),
+                                        ),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          if (isImageUrl)
+                                            ClipRRect(
+                                              borderRadius: BorderRadius.circular(8),
+                                              child: Image.network(
+                                                msg['content']!.split('(')[1].split(')')[0],
+                                                fit: BoxFit.cover,
+                                                loadingBuilder: (context, child, loadingProgress) {
+                                                  if (loadingProgress == null) return child;
+                                                  return const Center(child: CircularProgressIndicator());
+                                                },
+                                              ),
+                                            )
+                                          else if (isUser) 
+                                            SelectableText(msg['content']!, style: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87))
+                                          else
+                                            MarkdownBody(
+                                                data: msg['content']!,
+                                                styleSheet: MarkdownStyleSheet(
+                                                  p: TextStyle(fontSize: 15, height: 1.4, color: isDark ? Colors.white : Colors.black87),
+                                                  code: const TextStyle(backgroundColor: Colors.black45, color: Colors.greenAccent, fontFamily: 'monospace'),
+                                                  codeblockDecoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8)),
+                                                ),
+                                              ),
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Text(timeStr, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                                                  const SizedBox(width: 8),
+                                                  Text('~$tokenEstimate tk', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                                                ],
+                                              ),
+                                              Row(
+                                                children: [
+                                                  if (!isUser) ...[
+                                                    // FITUR BARU: Tombol Translate
+                                                    IconButton(
+                                                      icon: const Icon(Icons.g_translate, size: 16, color: Colors.grey), 
+                                                      tooltip: 'Terjemahkan',
+                                                      onPressed: () => _sendMessage(text: "Terjemahkan teks berikut ke Bahasa Indonesia: ${msg['content']}"),
+                                                    ),
+                                                    IconButton(icon: const Icon(Icons.volume_up, size: 16, color: Colors.grey), onPressed: () => _speak(msg['content']!)),
+                                                    const SizedBox(width: 8),
+                                                    if (isLastMessage)
+                                                      IconButton(icon: const Icon(Icons.refresh, size: 16, color: Colors.deepPurpleAccent), onPressed: _regenerateResponse),
+                                                    const SizedBox(width: 8),
+                                                  ],
+                                                  IconButton(
+                                                    icon: const Icon(Icons.copy, size: 16, color: Colors.grey),
+                                                    onPressed: () {
+                                                      Clipboard.setData(ClipboardData(text: msg['content']!));
+                                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disalin'), duration: Duration(seconds: 1)));
+                                                    },
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          )
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            CircleAvatar(
-                              backgroundColor: Colors.deepPurple,
-                              child: IconButton(icon: const Icon(Icons.send, color: Colors.white, size: 20), onPressed: _isLoading ? null : () => _sendMessage()),
-                            ),
-                          ],
-                        ),
                       ),
-                    ),
-                  ],
-                ),
-                if (_showScrollToBottom)
-                  Positioned(
-                    bottom: 80, right: 16,
-                    child: FloatingActionButton.small(backgroundColor: Colors.deepPurple, onPressed: _scrollToBottom, child: const Icon(Icons.arrow_downward, color: Colors.white)),
+                      if (_isLoading)
+                        Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepPurpleAccent)),
+                              const SizedBox(width: 12),
+                              Text('Wenkikly sedang mengetik...', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54, fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                      // FITUR BARU: Sembunyikan input bar di Zen Mode
+                      if (!_isZenMode)
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(color: isDark ? const Color(0xFF1A1A1A) : Colors.white, border: Border(top: BorderSide(color: isDark ? Colors.white12 : Colors.black12))),
+                          child: SafeArea(
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  backgroundColor: _isListening ? Colors.redAccent : (isDark ? const Color(0xFF2C2C2C) : Colors.grey[300]),
+                                  child: IconButton(icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.white : (isDark ? Colors.white54 : Colors.black54), size: 20), onPressed: _listen),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _controller,
+                                    style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                                    maxLength: 4000,
+                                    buildCounter: (context, {required currentLength, required isFocused, maxLength}) => Text('$currentLength/$maxLength', style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : Colors.black38)),
+                                    decoration: InputDecoration(
+                                      hintText: _isListening ? 'Mendengarkan...' : 'Tanya ${_selectedModel.name}...',
+                                      hintStyle: TextStyle(color: _isListening ? Colors.redAccent : (isDark ? Colors.white54 : Colors.black54)),
+                                      filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                                      suffixIcon: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(icon: const Icon(Icons.bookmark_add_outlined, size: 20, color: Colors.deepPurpleAccent), tooltip: 'Simpan Prompt', onPressed: _savePrompt),
+                                          IconButton(icon: const Icon(Icons.list, size: 20, color: Colors.grey), tooltip: 'Prompt Tersimpan', onPressed: _showSavedPrompts),
+                                        ],
+                                      ),
+                                    ),
+                                    onSubmitted: (_) => _sendMessage(),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                CircleAvatar(
+                                  backgroundColor: Colors.deepPurple,
+                                  child: IconButton(icon: const Icon(Icons.send, color: Colors.white, size: 20), onPressed: _isLoading ? null : () => _sendMessage()),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-              ],
+                  if (_showScrollToBottom)
+                    Positioned(
+                      bottom: 80, right: 16,
+                      child: FloatingActionButton.small(backgroundColor: Colors.deepPurple, onPressed: _scrollToBottom, child: const Icon(Icons.arrow_downward, color: Colors.white)),
+                    ),
+                ],
+              ),
             ),
     );
   }
