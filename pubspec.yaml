@@ -15,7 +15,7 @@ dependencies:
   google_fonts: ^6.1.0
   intl: ^0.19.0
   flutter_launcher_icons: ^0.13.1
-  speech_to_text: ^7.6.0
+  speech_to_text: ^7.5.0
   flutter_tts: ^4.2.5
 
 dev_dependencies:
