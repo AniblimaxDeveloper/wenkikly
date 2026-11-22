@@ -4,6 +4,9 @@ class ChatSession {
   String folder;
   List<Map<String, dynamic>> messages;
   String modelId;
+  String? systemPromptOverride;
+  double? temperatureOverride;
+  bool hideTokens;
 
   ChatSession({
     required this.id, 
@@ -11,6 +14,9 @@ class ChatSession {
     required this.messages, 
     required this.modelId,
     this.folder = 'General',
+    this.systemPromptOverride,
+    this.temperatureOverride,
+    this.hideTokens = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -19,6 +25,9 @@ class ChatSession {
     'folder': folder,
     'messages': messages,
     'modelId': modelId,
+    'systemPromptOverride': systemPromptOverride,
+    'temperatureOverride': temperatureOverride,
+    'hideTokens': hideTokens,
   };
 
   factory ChatSession.fromJson(Map<String, dynamic> json) => ChatSession(
@@ -27,5 +36,8 @@ class ChatSession {
     folder: json['folder'] ?? 'General',
     messages: List<Map<String, dynamic>>.from(json['messages']),
     modelId: json['modelId'],
+    systemPromptOverride: json['systemPromptOverride'],
+    temperatureOverride: json['temperatureOverride'],
+    hideTokens: json['hideTokens'] ?? false,
   );
 }

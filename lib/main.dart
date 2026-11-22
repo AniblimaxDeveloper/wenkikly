@@ -29,7 +29,7 @@ class WenkiklyApp extends StatefulWidget {
   State<WenkiklyApp> createState() => _WenkiklyAppState();
 }
 
-class _WenkiklyAppState extends State<WenkiklyApp> {
+class _WenkiklyAppState extends State<WenkiklyApp> with WidgetsBindingObserver {
   bool _isDarkMode = true;
   bool _isBiometricEnabled = false;
   bool _isAuthenticated = false;
@@ -42,7 +42,23 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      if (_isBiometricEnabled) {
+        setState(() => _isAuthenticated = false); // FITUR: Auto-Lock
+      }
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -77,8 +93,7 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
   Widget build(BuildContext context) {
     if (!_isAuthenticated) {
       return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData.dark(),
+        debugShowCheckedModeBanner: false, theme: ThemeData.dark(),
         home: Scaffold(
           body: Center(
             child: Column(
@@ -95,21 +110,15 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
         ),
       );
     }
-
     return MaterialApp(
-      title: _appTitle,
-      debugShowCheckedModeBanner: false,
+      title: _appTitle, debugShowCheckedModeBanner: false,
       themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
       theme: ThemeData(brightness: Brightness.light, useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: _accentColor), appBarTheme: const AppBarTheme(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0)),
       darkTheme: ThemeData(brightness: Brightness.dark, useMaterial3: true, textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme), colorScheme: ColorScheme.fromSeed(seedColor: _accentColor, brightness: Brightness.dark), scaffoldBackgroundColor: const Color(0xFF0F0F0F), appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF1A1A1A), foregroundColor: Colors.white, elevation: 0)),
       home: ChatScreen(
-        appTitle: _appTitle,
-        fontSize: _fontSize,
-        onThemeChanged: _changeTheme, 
-        onBiometricChanged: _changeBiometric, 
-        onLanguageChanged: _changeLanguage,
-        onFontSizeChanged: _changeFontSize,
-        language: _appLanguage,
+        appTitle: _appTitle, fontSize: _fontSize,
+        onThemeChanged: _changeTheme, onBiometricChanged: _changeBiometric, 
+        onLanguageChanged: _changeLanguage, onFontSizeChanged: _changeFontSize, language: _appLanguage,
       ),
     );
   }
@@ -150,6 +159,9 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isAutoTts = false;
   bool _isHaptics = true;
   bool _isEnhancing = false;
+  bool _hideTokens = false;
+  bool _isFullWidth = false;
+  String _timeFormat = '24h';
 
   List<ChatSession> _sessions = [];
   ChatSession? _currentSession;
@@ -160,12 +172,7 @@ class _ChatScreenState extends State<ChatScreen> {
   XFile? _pickedImage;
   String _selectedRatio = '1:1';
 
-  final List<String> _quickPrompts = [
-    "Buatkan kode Flutter untuk UI login.",
-    "Jelaskan konsep AI dengan bahasa sederhana.",
-    "Tulis artikel tentang masa depan teknologi.",
-    "Buat puisi tentang senja."
-  ];
+  final List<String> _quickPrompts = ["Buatkan kode Flutter UI login.", "Jelaskan AI dengan sederhana.", "Tulis artikel teknologi.", "Buat puisi senja."];
 
   @override
   void initState() {
@@ -178,9 +185,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _initTts() async {
-    await _flutterTts.setLanguage(widget.language == 'id' ? "id-ID" : "en-US");
-  }
+  void _initTts() async => await _flutterTts.setLanguage(widget.language == 'id' ? "id-ID" : "en-US");
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -188,11 +193,13 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _isAutoTts = prefs.getBool('auto_tts_enabled') ?? false;
       _isHaptics = prefs.getBool('haptics_enabled') ?? true;
+      _hideTokens = prefs.getBool('hide_tokens_global') ?? false;
+      _isFullWidth = prefs.getBool('is_full_width') ?? false;
+      _timeFormat = prefs.getString('time_format') ?? '24h';
       _sessions = sessions;
       if (_sessions.isNotEmpty) {
         _currentSession = _sessions.first;
         _selectedModel = wenkiklyModels.firstWhere((m) => m.id == _currentSession!.modelId, orElse: () => wenkiklyModels[0]);
-        // FITUR AUTO-SAVE DRAFT
         _controller.text = prefs.getString('draft_${_currentSession!.id}') ?? '';
       } else {
         _createNewSession();
@@ -202,10 +209,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _listen() async {
     if (!_isListening) {
+      final prefs = await SharedPreferences.getInstance();
+      String lang = prefs.getString('stt_language') == 'en' ? "en_US" : "id_ID";
       bool available = await _speech.initialize();
       if (available) {
         setState(() => _isListening = true);
-        _speech.listen(onResult: (val) => setState(() => _controller.text = val.recognizedWords));
+        _speech.listen(localeId: lang, onResult: (val) => setState(() => _controller.text = val.recognizedWords));
       }
     } else {
       setState(() => _isListening = false);
@@ -220,9 +229,7 @@ class _ChatScreenState extends State<ChatScreen> {
     await _flutterTts.speak(cleanText);
   }
 
-  void _haptic() {
-    if (_isHaptics) HapticFeedback.lightImpact();
-  }
+  void _haptic() { if (_isHaptics) HapticFeedback.lightImpact(); }
 
   Future<void> _pickImage() async {
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
@@ -248,9 +255,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _storageService.saveSessions(_sessions);
   }
 
-  void _scrollToTop() {
-    _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
-  }
+  void _scrollToTop() => _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
 
   Future<void> _saveDraft(String text) async {
     if (_currentSession == null) return;
@@ -273,18 +278,10 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendMessage({String? text}) async {
     final messageText = text ?? _controller.text.trim();
     if (messageText.isEmpty && _pickedImage == null || _currentSession == null) return;
-
-    if (!_selectedModel.isUnlimited && _currentSession!.messages.length >= 10) {
-      _showLimitDialog();
-      return;
-    }
+    if (!_selectedModel.isUnlimited && _currentSession!.messages.length >= 10) { _showLimitDialog(); return; }
 
     _haptic();
-    String finalText = messageText;
-    if (messageText.startsWith('/image ')) {
-      finalText = '$messageText --ratio $_selectedRatio';
-    }
-
+    String finalText = messageText.startsWith('/image ') ? '$messageText --ratio $_selectedRatio' : messageText;
     String displayContent = finalText;
     dynamic apiContent = finalText;
 
@@ -309,7 +306,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _storageService.saveSessions(_sessions);
 
     final apiMessages = _currentSession!.messages.map((m) => {'role': m['role'], 'content': m['raw_api_content'] ?? m['content']}).toList();
-    final reply = await _aiService.sendMessage(apiMessages, _selectedModel.id);
+    final reply = await _aiService.sendMessage(apiMessages, _currentSession!);
 
     setState(() {
       _currentSession!.messages.add({'role': 'assistant', 'content': reply, 'timestamp': DateTime.now().toIso8601String()});
@@ -318,6 +315,10 @@ class _ChatScreenState extends State<ChatScreen> {
     _storageService.saveSessions(_sessions);
 
     if (_isAutoTts && !reply.startsWith('Error')) _speak(reply);
+  }
+
+  void _continueGenerating() async {
+    _sendMessage(text: "Lanjutkan jawabanmu yang terpotong sebelumnya.");
   }
 
   void _editMessage(int index) {
@@ -333,21 +334,26 @@ class _ChatScreenState extends State<ChatScreen> {
     _storageService.saveSessions(_sessions);
   }
 
+  void _forkChat(int index) {
+    final newId = DateTime.now().millisecondsSinceEpoch.toString();
+    final newSession = ChatSession(
+      id: newId, title: 'Fork: ${_currentSession!.title}', messages: _currentSession!.messages.sublist(0, index + 1), modelId: _currentSession!.modelId,
+    );
+    setState(() { _sessions.insert(0, newSession); _currentSession = newSession; });
+    _storageService.saveSessions(_sessions);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat berhasil di-fork!')));
+  }
+
   Future<void> _exportChat() async {
     if (_currentSession == null || _currentSession!.messages.isEmpty) return;
     String text = "# ${_currentSession!.title}\n\n";
-    for (var msg in _currentSession!.messages) {
-      text += msg['role'] == 'user' ? "### User\n" : "### AI\n";
-      text += "${msg['content']}\n\n---\n\n";
-    }
+    for (var msg in _currentSession!.messages) { text += msg['role'] == 'user' ? "### User\n" : "### AI\n"; text += "${msg['content']}\n\n---\n\n"; }
     try {
       final directory = await getTemporaryDirectory();
       final file = File('${directory.path}/Wenkikly_${_currentSession!.id}.md');
       await file.writeAsString(text);
       await Share.shareXFiles([XFile(file.path)], text: 'Ekspor Chat Wenkikly (Markdown)');
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e')));
-    }
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
   }
 
   void _showLimitDialog() {
@@ -387,11 +393,8 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
     int totalTokens = 0;
-    if (_currentSession != null) {
-      for (var msg in _currentSession!.messages) { totalTokens += ((msg['content']?.toString().length ?? 0) / 4).ceil(); }
-    }
+    if (_currentSession != null) { for (var msg in _currentSession!.messages) { totalTokens += ((msg['content']?.toString().length ?? 0) / 4).ceil(); } }
 
     return Scaffold(
       appBar: _isZenMode ? null : AppBar(
@@ -468,10 +471,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                     const SizedBox(height: 16),
                                     Text('Mulai percakapan dengan ${_selectedModel.name}', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)),
                                     const SizedBox(height: 24),
-                                    Wrap(
-                                      spacing: 8, runSpacing: 8, alignment: WrapAlignment.center,
-                                      children: _quickPrompts.map((prompt) => ActionChip(label: Text(prompt, style: const TextStyle(fontSize: 12)), onPressed: () => _sendMessage(text: prompt), backgroundColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200], side: BorderSide.none)).toList(),
-                                    ),
+                                    Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: _quickPrompts.map((prompt) => ActionChip(label: Text(prompt, style: const TextStyle(fontSize: 12)), onPressed: () => _sendMessage(text: prompt), backgroundColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200], side: BorderSide.none)).toList()),
                                   ],
                                 ),
                               )
@@ -481,7 +481,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                   final msg = _currentSession!.messages[index];
                                   final isUser = msg['role'] == 'user';
                                   final isLastMessage = index == _currentSession!.messages.length - 1;
-                                  final timeStr = msg['timestamp'] != null ? DateFormat('HH:mm').format(DateTime.parse(msg['timestamp']!)) : '';
+                                  
+                                  // FITUR: Format Jam 12/24
+                                  DateTime dt = DateTime.parse(msg['timestamp'] ?? DateTime.now().toIso8601String());
+                                  final timeStr = _timeFormat == '12h' ? DateFormat('hh:mm a').format(dt) : DateFormat('HH:mm').format(dt);
                                   final wordCount = msg['content'].toString().split(' ').length;
                                   final isImageUrl = msg['content'] != null && msg['content']!.contains('image.pollinations.ai');
                                   
@@ -489,7 +492,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                     alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
                                     child: Container(
                                       margin: const EdgeInsets.symmetric(vertical: 6), padding: const EdgeInsets.all(12),
-                                      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
+                                      constraints: BoxConstraints(maxWidth: _isFullWidth ? MediaQuery.of(context).size.width * 0.95 : MediaQuery.of(context).size.width * 0.85),
                                       decoration: BoxDecoration(
                                         color: isUser ? Colors.deepPurple.shade700 : (isDark ? const Color(0xFF2C2C2C) : Colors.grey[200]),
                                         borderRadius: BorderRadius.only(topLeft: const Radius.circular(16), topRight: const Radius.circular(16), bottomLeft: isUser ? const Radius.circular(16) : Radius.zero, bottomRight: isUser ? Radius.zero : const Radius.circular(16)),
@@ -512,16 +515,24 @@ class _ChatScreenState extends State<ChatScreen> {
                                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                             children: [
                                               Text('$timeStr • $wordCount kata', style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                                              Row(
-                                                children: [
-                                                  if (!isUser) ...[
-                                                    IconButton(icon: const Icon(Icons.push_pin, size: 16, color: Colors.grey), onPressed: () => _pinMessage(index)),
-                                                    IconButton(icon: const Icon(Icons.volume_up, size: 16, color: Colors.grey), onPressed: () => _speak(msg['content']!)),
-                                                    if (isLastMessage) IconButton(icon: const Icon(Icons.refresh, size: 16, color: Colors.deepPurpleAccent), onPressed: () {}),
-                                                  ] else ...[
-                                                    IconButton(icon: const Icon(Icons.edit, size: 16, color: Colors.grey), onPressed: () => _editMessage(index)),
-                                                  ],
-                                                  IconButton(icon: const Icon(Icons.copy, size: 16, color: Colors.grey), onPressed: () { Clipboard.setData(ClipboardData(text: msg['content']!)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disalin'))); }),
+                                              // FITUR: Long Press Context Menu
+                                              PopupMenuButton<String>(
+                                                icon: const Icon(Icons.more_horiz, size: 20, color: Colors.grey),
+                                                onSelected: (val) {
+                                                  if (val == 'copy') { Clipboard.setData(ClipboardData(text: msg['content']!)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disalin'))); }
+                                                  if (val == 'share') { Share.share(msg['content']!); }
+                                                  if (val == 'fork') { _forkChat(index); }
+                                                  if (val == 'edit') { _editMessage(index); }
+                                                  if (val == 'pin') { _pinMessage(index); }
+                                                  if (val == 'speak') { _speak(msg['content']!); }
+                                                },
+                                                itemBuilder: (context) => [
+                                                  const PopupMenuItem(value: 'copy', child: Text('Copy')),
+                                                  const PopupMenuItem(value: 'share', child: Text('Share Single')),
+                                                  if (!isUser) const PopupMenuItem(value: 'speak', child: Text('Bacakan (TTS)')),
+                                                  const PopupMenuItem(value: 'fork', child: Text('Fork Chat Here')),
+                                                  if (!isUser) const PopupMenuItem(value: 'pin', child: Text('Pin Message')),
+                                                  if (isUser) const PopupMenuItem(value: 'edit', child: Text('Edit Message')),
                                                 ],
                                               ),
                                             ],
@@ -535,6 +546,10 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       if (_isLoading)
                         Padding(padding: const EdgeInsets.all(8.0), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepPurpleAccent)), const SizedBox(width: 12), const Text('Wenkikly sedang mengetik...', style: TextStyle(color: Colors.grey, fontSize: 12))])),
+                      
+                      if (!_isLoading && _currentSession!.messages.isNotEmpty && _currentSession!.messages.last['role'] == 'assistant')
+                        TextButton.icon(onPressed: _continueGenerating, icon: const Icon(Icons.arrow_downward, size: 16), label: const Text('Lanjutkan Generate')),
+                      
                       if (!_isZenMode)
                         Container(
                           padding: const EdgeInsets.all(12),
@@ -555,9 +570,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: TextField(
-                                        controller: _controller, 
-                                        onChanged: _saveDraft,
-                                        style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                                        controller: _controller, onChanged: _saveDraft, style: TextStyle(color: isDark ? Colors.white : Colors.black),
                                         maxLength: 4000,
                                         buildCounter: (context, {required currentLength, required isFocused, maxLength}) => Text('$currentLength/$maxLength', style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : Colors.black38)),
                                         decoration: InputDecoration(
@@ -565,9 +578,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                           filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
                                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                                           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                          suffixIcon: _isEnhancing 
-                                                ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)))
-                                                : IconButton(icon: const Icon(Icons.auto_fix_high, color: Colors.amberAccent), onPressed: _enhanceCurrentPrompt),
+                                          suffixIcon: _isEnhancing ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))) : IconButton(icon: const Icon(Icons.auto_fix_high, color: Colors.amberAccent), onPressed: _enhanceCurrentPrompt),
                                         ),
                                         onSubmitted: (_) => _sendMessage(),
                                       ),

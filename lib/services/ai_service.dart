@@ -1,25 +1,31 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/chat_session.dart';
 
 class AIService {
+  static const String _defaultApiUrl = 'https://openrouter.ai/api/v1/chat/completions';
   static const String _envApiKey = String.fromEnvironment('OPENROUTER_API_KEY');
-  static const String _apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
 
   Future<String> _getApiKey() async {
     final prefs = await SharedPreferences.getInstance();
-    final localKey = prefs.getString('custom_api_key');
-    if (localKey != null && localKey.isNotEmpty) return localKey;
-    return _envApiKey;
+    return prefs.getString('custom_api_key') ?? _envApiKey;
   }
 
-  Future<String> sendMessage(List<Map<String, dynamic>> messages, String modelId) async {
+  Future<String> _getApiUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('custom_api_url') ?? _defaultApiUrl;
+  }
+
+  Future<String> sendMessage(List<Map<String, dynamic>> messages, ChatSession session) async {
     final apiKey = await _getApiKey();
-    if (apiKey.isEmpty) return 'Error: API Key tidak ditemukan. Buka Settings.';
+    if (apiKey.isEmpty && !session.modelId.contains('local')) return 'Error: API Key tidak ditemukan. Buka Settings.';
 
     final prefs = await SharedPreferences.getInstance();
-    final systemPrompt = prefs.getString('system_prompt') ?? '';
-    final temperature = prefs.getDouble('temperature') ?? 0.7;
+    final systemPrompt = session.systemPromptOverride ?? prefs.getString('system_prompt') ?? '';
+    final temperature = session.temperatureOverride ?? prefs.getDouble('temperature') ?? 0.7;
+    final timeoutSec = prefs.getInt('network_timeout') ?? 60;
+    final apiUrl = await _getApiUrl();
 
     final lastContent = messages.last['content'];
     if (lastContent is String && lastContent.startsWith('/image ')) {
@@ -40,10 +46,17 @@ class AIService {
 
     try {
       final response = await http.post(
-        Uri.parse(_apiUrl),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'},
-        body: jsonEncode({'model': _getBackendModel(modelId), 'messages': finalMessages, 'temperature': temperature}),
-      );
+        Uri.parse(apiUrl),
+        headers: {
+          'Content-Type': 'application/json', 
+          if (apiKey.isNotEmpty) 'Authorization': 'Bearer $apiKey'
+        },
+        body: jsonEncode({
+          'model': session.modelId.contains('local') ? session.modelId : _getBackendModel(session.modelId), 
+          'messages': finalMessages, 
+          'temperature': temperature
+        }),
+      ).timeout(Duration(seconds: timeoutSec));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -56,7 +69,8 @@ class AIService {
         return 'Error ${response.statusCode}: ${response.body}';
       }
     } catch (e) {
-      return 'Gagal terhubung ke server AI.';
+      if (e.toString().contains('TimeoutException')) return 'Error: Timeout. Server AI terlalu lama merespons.';
+      return 'Gagal terhubung ke server AI. Cek koneksi / API URL.';
     }
   }
 
@@ -66,7 +80,7 @@ class AIService {
 
     try {
       final response = await http.post(
-        Uri.parse(_apiUrl),
+        Uri.parse(await _getApiUrl()),
         headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'},
         body: jsonEncode({
           'model': 'meta-llama/llama-3.1-8b-instruct',
