@@ -13,7 +13,7 @@ class AIService {
     return _envApiKey;
   }
 
-  Future<String> sendMessage(List<Map<String, String>> messages, String modelId) async {
+  Future<String> sendMessage(List<Map<String, dynamic>> messages, String modelId) async {
     final apiKey = await _getApiKey();
     if (apiKey.isEmpty) {
       return 'Error: API Key tidak ditemukan. Silakan buka menu Settings dan masukkan API Key OpenRouter Anda.';
@@ -24,17 +24,19 @@ class AIService {
     final temperature = prefs.getDouble('temperature') ?? 0.7;
 
     // FITUR BARU: Cek jika user minta gambar
-    if (messages.last['content']!.startsWith('/image ')) {
-      final prompt = messages.last['content']!.replaceFirst('/image ', '');
-      // Menggunakan Pollinations.ai (Gratis, tanpa API Key)
+    final lastContent = messages.last['content'];
+    if (lastContent is String && lastContent.startsWith('/image ')) {
+      final prompt = lastContent.replaceFirst('/image ', '');
       final imageUrl = 'https://image.pollinations.ai/prompt/${Uri.encodeComponent(prompt)}?width=1024&height=1024&nologo=true';
       return '![Gambar AI]($imageUrl)';
     }
 
-    List<Map<String, String>> finalMessages = [];
+    List<Map<String, dynamic>> finalMessages = [];
     if (systemPrompt.isNotEmpty) {
       finalMessages.add({'role': 'system', 'content': systemPrompt});
     }
+    
+    // FITUR BARU: Cek apakah ada pesan vision (list of objects)
     finalMessages.addAll(messages);
 
     try {
@@ -47,7 +49,7 @@ class AIService {
         body: jsonEncode({
           'model': _getBackendModel(modelId),
           'messages': finalMessages,
-          'temperature': temperature, // FITUR BARU: Suhu Kreativitas
+          'temperature': temperature,
         }),
       );
 
@@ -67,12 +69,13 @@ class AIService {
   }
 
   String _getBackendModel(String whenModel) {
-    if (whenModel.contains('Free') || whenModel.contains('when-1') || whenModel.contains('when-2')) {
-      return 'meta-llama/llama-3.1-8b-instruct'; 
+    // Jika model Vision, gunakan GPT-4o-mini yang mendukung gambar
+    if (whenModel.contains('Ultra') || whenModel.contains('Pro')) {
+      return 'openai/gpt-4o-mini'; 
     } else if (whenModel.contains('when-go') || whenModel.contains('when-plus')) {
       return 'meta-llama/llama-3.1-70b-instruct'; 
     } else {
-      return 'openai/gpt-4o-mini'; 
+      return 'meta-llama/llama-3.1-8b-instruct'; 
     }
   }
 }
