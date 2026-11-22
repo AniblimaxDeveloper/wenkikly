@@ -47,8 +47,9 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
     _checkLogin();
   }
 
-  void _checkLogin() {
-    setState(() => _isLoggedIn = _authService.isLoggedIn());
+  void _checkLogin() async {
+    final loggedIn = await _authService.isLoggedIn();
+    setState(() => _isLoggedIn = loggedIn);
   }
 
   @override

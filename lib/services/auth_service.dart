@@ -20,12 +20,10 @@ class AuthService {
     await prefs.setBool('is_logged_in', false);
   }
 
-  bool isLoggedIn() {
-    bool status = false;
-    SharedPreferences.getInstance().then((prefs) {
-      status = prefs.getBool('is_logged_in') ?? false;
-    });
-    return status;
+  // FIX: Ubah menjadi Future<bool> agar bisa di-await
+  Future<bool> isLoggedIn() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('is_logged_in') ?? false;
   }
   
   String? getUserEmail() => 'user@wenkikly.com';

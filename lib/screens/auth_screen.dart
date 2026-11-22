@@ -14,7 +14,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final AuthService _authService = AuthService();
-  bool _isLogin = true;
+  bool _isLogin = false; // Default ke Daftar (sesuai screenshot)
   bool _isLoading = false;
   bool _agreeTerms = false;
 
@@ -51,6 +51,19 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  // FITUR BARU: Simulasi Login Sosmed (Apple, X, FB)
+  void _dummySocialLogin(String provider) async {
+    if (!_agreeTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Harap setujui Syarat & Ketentuan!')));
+      return;
+    }
+    setState(() => _isLoading = true);
+    await Future.delayed(const Duration(seconds: 1)); // Simulasi loading jaringan
+    await _authService.signInWithEmail('$provider@wenkikly.com', '123');
+    setState(() => _isLoading = false);
+    widget.onLoginSuccess();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -60,7 +73,7 @@ class _AuthScreenState extends State<AuthScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Image.asset('new_logo.png', width: 100, errorBuilder: (c, e, s) => const Icon(Icons.auto_awesome, size: 100, color: Colors.deepPurple)),
+              const Icon(Icons.auto_awesome, size: 80, color: Colors.deepPurpleAccent),
               const SizedBox(height: 20),
               const Text('Wenkikly AI', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.deepPurpleAccent)),
               const Text('Ultra Intelligent Assistant', style: TextStyle(color: Colors.grey)),
@@ -104,9 +117,9 @@ class _AuthScreenState extends State<AuthScreen> {
                 alignment: WrapAlignment.center,
                 children: [
                   _oauthButton('Google', Icons.g_mobiledata, Colors.red, _submitGoogle),
-                  _oauthButton('Apple', Icons.apple, Colors.white, () {}), // Butuh setup Apple Dev
-                  _oauthButton('X', Icons.close, Colors.black, () {}), // Butuh setup X Dev
-                  _oauthButton('Facebook', Icons.facebook, Colors.blue, () {}), // Butuh setup Meta Dev
+                  _oauthButton('Apple', Icons.apple, Colors.white, () => _dummySocialLogin('Apple')),
+                  _oauthButton('X', Icons.close, Colors.white, () => _dummySocialLogin('X')),
+                  _oauthButton('Facebook', Icons.facebook, Colors.blue, () => _dummySocialLogin('Facebook')),
                 ],
               ),
             ],
@@ -118,7 +131,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Widget _oauthButton(String label, IconData icon, Color color, VoidCallback onTap) {
     return InkWell(
-      onTap: onTap,
+      onTap: _isLoading ? null : onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
