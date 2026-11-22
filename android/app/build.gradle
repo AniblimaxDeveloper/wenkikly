@@ -1,6 +1,5 @@
 plugins {
     id "com.android.application"
-    id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
 }
 
@@ -23,8 +22,8 @@ if (flutterVersionName == null) {
 }
 
 android {
-    namespace "com.example.wenkikly" // Sesuaikan jika package name beda
-    compileSdk 34
+    namespace "com.example.wenkikly"
+    compileSdk 36
     ndkVersion flutter.ndkVersion
 
     compileOptions {
@@ -43,7 +42,7 @@ android {
     defaultConfig {
         applicationId "com.example.wenkikly"
         minSdk 21
-        targetSdk 34
+        targetSdk 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
     }
