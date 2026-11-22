@@ -3,7 +3,6 @@ buildscript {
         google()
         mavenCentral()
     }
-
     dependencies {
         classpath 'com.android.tools.build:gradle:9.3.1'
     }
@@ -17,11 +16,11 @@ allprojects {
 }
 
 rootProject.buildDir = '../build'
+
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
-    project.evaluationDependsOn(':app')
     
-    // INI KUNCINYA: Memaksa semua plugin (termasuk flutter_tts) pakai SDK 36
+    // PENTING: afterEvaluate harus SEBELUM evaluationDependsOn
     afterEvaluate { project ->
         if (project.hasProperty('android')) {
             project.android {
@@ -29,6 +28,9 @@ subprojects {
             }
         }
     }
+    
+    // Baris ini harus tetap ada, tapi posisinya SETELAH afterEvaluate
+    project.evaluationDependsOn(':app')
 }
 
 tasks.register("clean", Delete) {
