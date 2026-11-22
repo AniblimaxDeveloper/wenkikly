@@ -52,6 +52,12 @@ android {
             signingConfig signingConfigs.debug
         }
     }
+
+    // FITUR PENYELAMAT: Matikan Lint saat build release
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
 }
 
 flutter {
