@@ -20,11 +20,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _apiUrlController = TextEditingController();
   bool _isDarkMode = true, _isBiometricEnabled = false, _isAutoTtsEnabled = false, _isHapticsEnabled = true;
-  bool _isFullWidth = false, _isAutoScroll = true, _hideTokens = false;
+  bool _isFullWidth = false, _isAutoScroll = true, _isAutoTranslate = false;
   double _temperature = 0.7, _ttsRate = 0.5, _fontSize = 15.0;
   int _accentColorValue = 0xFF673AB7;
   int _networkTimeout = 60;
-  String _tier = 'free';
+  String _tone = 'default';
+
+  final List<Color> _accentColors = [Colors.deepPurple, Colors.blue, Colors.pink, Colors.amber, Colors.teal];
 
   @override
   void initState() {
@@ -43,12 +45,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _isHapticsEnabled = prefs.getBool('haptics_enabled') ?? true;
       _isFullWidth = prefs.getBool('is_full_width') ?? false;
       _isAutoScroll = prefs.getBool('is_auto_scroll') ?? true;
-      _hideTokens = prefs.getBool('hide_tokens_global') ?? false;
+      _isAutoTranslate = prefs.getBool('auto_translate') ?? false;
       _temperature = prefs.getDouble('temperature') ?? 0.7;
       _ttsRate = prefs.getDouble('tts_rate') ?? 0.5;
       _fontSize = prefs.getDouble('font_size') ?? 15.0;
       _accentColorValue = prefs.getInt('accent_color') ?? 0xFF673AB7;
       _networkTimeout = prefs.getInt('network_timeout') ?? 60;
+      _tone = prefs.getString('ai_tone') ?? 'default';
     });
   }
 
@@ -62,12 +65,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setBool('haptics_enabled', _isHapticsEnabled);
     await prefs.setBool('is_full_width', _isFullWidth);
     await prefs.setBool('is_auto_scroll', _isAutoScroll);
-    await prefs.setBool('hide_tokens_global', _hideTokens);
+    await prefs.setBool('auto_translate', _isAutoTranslate);
     await prefs.setDouble('temperature', _temperature);
     await prefs.setDouble('tts_rate', _ttsRate);
     await prefs.setDouble('font_size', _fontSize);
     await prefs.setInt('accent_color', _accentColorValue);
     await prefs.setInt('network_timeout', _networkTimeout);
+    await prefs.setString('ai_tone', _tone);
     
     widget.onThemeChanged(_isDarkMode, Color(_accentColorValue));
     widget.onBiometricChanged(_isBiometricEnabled);
@@ -82,43 +86,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0C29),
-      appBar: AppBar(title: const Text('Pengaturan Lanjutan'), backgroundColor: Colors.transparent),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          SwitchListTile(title: const Text('Mode Gelap', style: TextStyle(color: Colors.white)), value: _isDarkMode, activeColor: Colors.deepPurpleAccent, onChanged: (val) => setState(() => _isDarkMode = val)),
-          SwitchListTile(title: const Text('Kunci Biometrik', style: TextStyle(color: Colors.white)), value: _isBiometricEnabled, activeColor: Colors.deepPurpleAccent, onChanged: (val) => setState(() => _isBiometricEnabled = val)),
-          SwitchListTile(title: const Text('Auto-TTS (Bacakan Jawaban)', style: TextStyle(color: Colors.white)), value: _isAutoTtsEnabled, activeColor: Colors.deepPurpleAccent, onChanged: (val) => setState(() => _isAutoTtsEnabled = val)),
-          SwitchListTile(title: const Text('Getaran (Haptics)', style: TextStyle(color: Colors.white)), value: _isHapticsEnabled, activeColor: Colors.deepPurpleAccent, onChanged: (val) => setState(() => _isHapticsEnabled = val)),
-          SwitchListTile(title: const Text('Bubble Chat Full-Width', style: TextStyle(color: Colors.white)), value: _isFullWidth, activeColor: Colors.deepPurpleAccent, onChanged: (val) => setState(() => _isFullWidth = val)),
-          SwitchListTile(title: const Text('Auto-Scroll ke Bawah', style: TextStyle(color: Colors.white)), value: _isAutoScroll, activeColor: Colors.deepPurpleAccent, onChanged: (val) => setState(() => _isAutoScroll = val)),
-          
-          const Divider(color: Colors.white24, height: 30),
-          const Text('Tampilan & Suara', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          const Text('Ukuran Font Chat', style: TextStyle(color: Colors.white54, fontSize: 12)),
-          Slider(value: _fontSize, min: 12.0, max: 20.0, divisions: 8, label: _fontSize.toStringAsFixed(1), activeColor: Colors.deepPurpleAccent, onChanged: (val) => setState(() => _fontSize = val)),
-          
-          const Text('Kecepatan Suara (TTS)', style: TextStyle(color: Colors.white54, fontSize: 12)),
-          Slider(value: _ttsRate, min: 0.2, max: 1.0, divisions: 8, label: _ttsRate.toStringAsFixed(1), activeColor: Colors.deepPurpleAccent, onChanged: (val) => setState(() => _ttsRate = val)),
-          
-          const Text('Kreativitas AI (Temperature)', style: TextStyle(color: Colors.white54, fontSize: 12)),
-          Slider(value: _temperature, min: 0.0, max: 1.5, divisions: 15, label: _temperature.toStringAsFixed(1), activeColor: Colors.deepPurpleAccent, onChanged: (val) => setState(() => _temperature = val)),
-
-          const Divider(color: Colors.white24, height: 30),
-          const Text('Koneksi & API', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          TextField(controller: _apiUrlController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'API Base URL', labelStyle: TextStyle(color: Colors.white54), border: OutlineInputBorder())),
-          const SizedBox(height: 12),
-          TextField(controller: _apiKeyController, style: const TextStyle(color: Colors.white), obscureText: true, decoration: const InputDecoration(labelText: 'API Key OpenRouter', labelStyle: TextStyle(color: Colors.white54), border: OutlineInputBorder())),
-          const SizedBox(height: 12),
-          const Text('Timeout Jaringan (detik)', style: TextStyle(color: Colors.white54, fontSize: 12)),
-          Slider(value: _networkTimeout.toDouble(), min: 10, max: 180, divisions: 17, label: '$_networkTimeout s', activeColor: Colors.deepPurpleAccent, onChanged: (val) => setState(() => _networkTimeout = val.toInt())),
-          
-          const SizedBox(height: 24),
-          ElevatedButton(onPressed: _saveSettings, style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurpleAccent, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('SIMPAN PENGATURAN', style: TextStyle(fontWeight: FontWeight.bold))),
-        ],
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        title: const Text('Pengaturan Lanjutan', style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF0B0B0F), Color(0xFF1A1A2E), Color(0xFF0B0B0F)]),
+        ),
+        child: ListView(
+          padding: const EdgeInsets.only(top: 100, left: 16, right: 16, bottom: 40),
+          children: [
+            const Text('Warna Aksen (Liquid Glass)', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Wrap(spacing: 12, children: _accentColors.map((c) => GestureDetector(
+              onTap: () => setState(() => _accentColorValue = c.value),
+              child: CircleAvatar(backgroundColor: c, radius: 20, child: _accentColorValue == c.value ? const Icon(Icons.check, color: Colors.white) : null),
+            )).toList()),
+            const Divider(color: Colors.white24, height: 40),
+            
+            SwitchListTile(title: const Text('Mode Gelap', style: TextStyle(color: Colors.white)), value: _isDarkMode, activeColor: Color(_accentColorValue), onChanged: (v) => setState(() => _isDarkMode = v)),
+            SwitchListTile(title: const Text('Kunci Biometrik', style: TextStyle(color: Colors.white)), value: _isBiometricEnabled, activeColor: Color(_accentColorValue), onChanged: (v) => setState(() => _isBiometricEnabled = v)),
+            SwitchListTile(title: const Text('Auto-TTS', style: TextStyle(color: Colors.white)), value: _isAutoTtsEnabled, activeColor: Color(_accentColorValue), onChanged: (v) => setState(() => _isAutoTtsEnabled = v)),
+            SwitchListTile(title: const Text('Auto-Translate (Indo/Eng)', style: TextStyle(color: Colors.white)), value: _isAutoTranslate, activeColor: Color(_accentColorValue), onChanged: (v) => setState(() => _isAutoTranslate = v)),
+            SwitchListTile(title: const Text('Bubble Full-Width', style: TextStyle(color: Colors.white)), value: _isFullWidth, activeColor: Color(_accentColorValue), onChanged: (v) => setState(() => _isFullWidth = v)),
+            
+            const Divider(color: Colors.white24, height: 40),
+            DropdownButtonFormField<String>(
+              value: _tone,
+              dropdownColor: const Color(0xFF1E1E2C),
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(labelText: 'Gaya Bahasa AI (Tone)', labelStyle: const TextStyle(color: Colors.white54), filled: true, fillColor: Colors.white10, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+              items: const [
+                DropdownMenuItem(value: 'default', child: Text('Default (Normal)')),
+                DropdownMenuItem(value: 'professional', child: Text('Professional (Formal)')),
+                DropdownMenuItem(value: 'casual', child: Text('Casual (Santai)')),
+                DropdownMenuItem(value: 'funny', child: Text('Funny (Lucu)')),
+              ],
+              onChanged: (v) => setState(() => _tone = v!),
+            ),
+            const SizedBox(height: 16),
+            
+            const Text('Kreativitas AI (Temperature)', style: TextStyle(color: Colors.white54, fontSize: 12)),
+            Slider(value: _temperature, min: 0.0, max: 1.5, divisions: 15, label: _temperature.toStringAsFixed(1), activeColor: Color(_accentColorValue), onChanged: (v) => setState(() => _temperature = v)),
+            
+            const Divider(color: Colors.white24, height: 40),
+            TextField(controller: _apiUrlController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'API URL', labelStyle: TextStyle(color: Colors.white54), border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: _apiKeyController, style: const TextStyle(color: Colors.white), obscureText: true, decoration: const InputDecoration(labelText: 'API Key', labelStyle: TextStyle(color: Colors.white54), border: OutlineInputBorder())),
+            
+            const SizedBox(height: 32),
+            ElevatedButton(
+              onPressed: _saveSettings, 
+              style: ElevatedButton.styleFrom(backgroundColor: Color(_accentColorValue), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), 
+              child: const Text('SIMPAN PENGATURAN', style: TextStyle(fontWeight: FontWeight.bold))
+            ),
+          ],
+        ),
       ),
     );
   }
