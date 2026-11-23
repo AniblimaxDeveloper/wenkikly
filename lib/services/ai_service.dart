@@ -96,7 +96,6 @@ Aturan berpikir dan menjawab:
     }
   }
 
-  // INI FUNGSI YANG TADI HILANG
   Future<String> enhancePrompt(String prompt) async {
     final apiKey = await _getApiKey();
     if (apiKey.isEmpty) return prompt;
