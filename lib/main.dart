@@ -28,6 +28,7 @@ import 'screens/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]);
   runApp(const WenkiklyApp());
 }
 
@@ -61,10 +62,10 @@ class _WenkiklyAppState extends State<WenkiklyApp> {
       darkTheme: ThemeData(
         brightness: Brightness.dark, 
         useMaterial3: true, 
-        textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme), 
+        textTheme: GoogleFonts.outfitTextTheme(ThemeData.dark().textTheme), // FONT PREMIUM
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark), 
-        scaffoldBackgroundColor: const Color(0xFF0F0F0F), 
-        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF1A1A1A), foregroundColor: Colors.white, elevation: 0)
+        scaffoldBackgroundColor: const Color(0xFF0B0B0F), // WARNA DASAR MEWAH
+        appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, foregroundColor: Colors.white, elevation: 0),
       ),
       home: _isLoggedIn 
         ? ChatScreen(onLogout: () { _authService.signOut(); _checkLogin(); })
@@ -100,8 +101,11 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isEnhancing = false;
   bool _isFullWidth = false;
   bool _isAutoScroll = true;
+  bool _isSelectionMode = false;
+  Set<int> _selectedIndices = {};
   String _timeFormat = '24h';
   String _quotedMessage = ''; 
+  String _currentPersona = 'default';
 
   List<ChatSession> _sessions = [];
   ChatSession? _currentSession;
@@ -114,6 +118,7 @@ class _ChatScreenState extends State<ChatScreen> {
   String _tier = 'free';
 
   final List<String> _quickPrompts = ["Buatkan kode Flutter UI login.", "Jelaskan AI dengan sederhana.", "Tulis artikel teknologi.", "Buat puisi senja."];
+  final Map<String, String> _personas = {'default': 'Kamu adalah asisten AI cerdas.', 'programmer': 'Kamu adalah programmer senior.', 'writer': 'Kamu adalah penulis kreatif.'};
 
   @override
   void initState() {
@@ -140,6 +145,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _isFullWidth = prefs.getBool('is_full_width') ?? false;
       _isAutoScroll = prefs.getBool('is_auto_scroll') ?? true;
       _timeFormat = prefs.getString('time_format') ?? '24h';
+      _currentPersona = prefs.getString('system_prompt') ?? 'default';
       _sessions = sessions;
       if (_sessions.isNotEmpty) {
         _currentSession = _sessions.first;
@@ -177,7 +183,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _createNewSession() {
     final newSession = ChatSession(id: DateTime.now().millisecondsSinceEpoch.toString(), title: 'Obrolan Baru', messages: [], modelId: _selectedModel.id);
-    setState(() { _sessions.insert(0, newSession); _currentSession = newSession; _controller.clear(); _quotedMessage = ''; });
+    setState(() { _sessions.insert(0, newSession); _currentSession = newSession; _controller.clear(); _quotedMessage = ''; _isSelectionMode = false; _selectedIndices.clear(); });
     _storageService.saveSessions(_sessions);
   }
 
@@ -196,11 +202,28 @@ class _ChatScreenState extends State<ChatScreen> {
     _storageService.saveSessions(_sessions);
   }
 
-  void _clearCurrentChat() {
-    if (_currentSession != null) {
-      setState(() { _currentSession!.messages.clear(); });
-      _storageService.saveSessions(_sessions);
-    }
+  void _togglePinMessage(int index) {
+    setState(() {
+      _currentSession!.messages[index]['isPinned'] = !(_currentSession!.messages[index]['isPinned'] ?? false);
+    });
+    _storageService.saveSessions(_sessions);
+    _haptic();
+  }
+
+  void _addReaction(int index, String emoji) {
+    setState(() {
+      _currentSession!.messages[index]['reaction'] = emoji;
+    });
+    _storageService.saveSessions(_sessions);
+    _haptic();
+  }
+
+  void _toggleSelection(int index) {
+    setState(() {
+      if (_selectedIndices.contains(index)) _selectedIndices.remove(index);
+      else _selectedIndices.add(index);
+      if (_selectedIndices.isEmpty) _isSelectionMode = false;
+    });
   }
 
   Future<void> _enhanceCurrentPrompt() async {
@@ -254,8 +277,9 @@ class _ChatScreenState extends State<ChatScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Statistik Obrolan'),
-        content: Text('Total Pesan: $totalMsgs\nTotal Kata: $totalWords\nEstimasi Token: ~$totalTokens'),
+        backgroundColor: const Color(0xFF1E1E2C),
+        title: const Text('Statistik Obrolan', style: TextStyle(color: Colors.white)),
+        content: Text('Total Pesan: $totalMsgs\nTotal Kata: $totalWords\nEstimasi Token: ~$totalTokens', style: const TextStyle(color: Colors.white70)),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))],
       ),
     );
@@ -316,7 +340,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() {
       if (_currentSession!.messages.isEmpty) _currentSession!.title = displayContent.length > 25 ? '${displayContent.substring(0, 25)}...' : displayContent;
-      _currentSession!.messages.add({'role': 'user', 'content': displayContent, 'timestamp': DateTime.now().toIso8601String(), 'raw_api_content': apiContent});
+      _currentSession!.messages.add({'role': 'user', 'content': displayContent, 'timestamp': DateTime.now().toIso8601String(), 'raw_api_content': apiContent, 'isPinned': false});
       _isLoading = true;
       _pickedImage = null;
     });
@@ -329,7 +353,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final reply = await _aiService.sendMessage(apiMessages, _currentSession!);
 
     setState(() {
-      _currentSession!.messages.add({'role': 'assistant', 'content': reply, 'timestamp': DateTime.now().toIso8601String()});
+      _currentSession!.messages.add({'role': 'assistant', 'content': reply, 'timestamp': DateTime.now().toIso8601String(), 'isPinned': false});
       _isLoading = false;
     });
     
@@ -342,8 +366,9 @@ class _ChatScreenState extends State<ChatScreen> {
     showDialog(
       context: context, 
       builder: (context) => AlertDialog(
-        title: const Text('Limit Tercapai'), 
-        content: const Text('Batas pesan paket Free habis. Ganti ke Unlimited.'), 
+        backgroundColor: const Color(0xFF1E1E2C),
+        title: const Text('Limit Tercapai', style: TextStyle(color: Colors.white)), 
+        content: const Text('Batas pesan paket Free habis. Ganti ke Unlimited.', style: TextStyle(color: Colors.white70)), 
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]
       )
     );
@@ -352,15 +377,16 @@ class _ChatScreenState extends State<ChatScreen> {
   void _showModelSelector() {
     showModalBottomSheet(
       context: context, 
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor, 
+      backgroundColor: const Color(0xFF1E1E2C), 
       isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) => DraggableScrollableSheet(
         expand: false, 
         initialChildSize: 0.7, 
         maxChildSize: 0.9,
         builder: (context, scrollController) => Column(
           children: [
-            const Padding(padding: EdgeInsets.all(16.0), child: Text('Pilih Model Wenkikly', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+            const Padding(padding: EdgeInsets.all(16.0), child: Text('Pilih Model Wenkikly', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white))),
             Expanded(
               child: ListView.builder(
                 controller: scrollController, 
@@ -369,15 +395,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   final model = wenkiklyModels[index];
                   final isSelected = model.id == _selectedModel.id;
                   return ListTile(
-                    leading: CircleAvatar(backgroundColor: isSelected ? Colors.deepPurple : Colors.grey[800], child: Icon(model.icon, color: Colors.white, size: 20)),
+                    leading: CircleAvatar(backgroundColor: isSelected ? Colors.deepPurpleAccent : Colors.grey[800], child: Icon(model.icon, color: Colors.white, size: 20)),
                     title: Row(
                       children: [
-                        Text(model.name, style: TextStyle(color: isSelected ? Colors.deepPurpleAccent : null, fontWeight: FontWeight.bold)), 
+                        Text(model.name, style: TextStyle(color: isSelected ? Colors.deepPurpleAccent : Colors.white, fontWeight: FontWeight.bold)), 
                         const SizedBox(width: 8), 
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), 
                           decoration: BoxDecoration(color: model.isUnlimited ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(4)), 
-                          child: Text(model.isUnlimited ? 'UNLIMITED' : 'LIMIT', style: TextStyle(fontSize: 10, color: model.isUnlimited ? Colors.green : Colors.orange, fontWeight: FontWeight.bold))
+                          child: Text(model.isUnlimited ? 'UNLIMITED' : 'LIMIT', style: TextStyle(fontSize: 10, color: model.isUnlimited ? Colors.greenAccent : Colors.orangeAccent, fontWeight: FontWeight.bold))
                         )
                       ]
                     ),
@@ -409,60 +435,78 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     return Scaffold(
-      appBar: _isZenMode ? null : AppBar(
-        title: GestureDetector(
-          onLongPress: _showModelSelector,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Wenkikly AI', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
-              Text('${_selectedModel.name} • ~$totalTokens tk', style: const TextStyle(fontSize: 12, color: Colors.deepPurpleAccent)),
-            ],
+      extendBodyBehindAppBar: true,
+      appBar: _isZenMode ? null : PreferredSize(
+        preferredSize: const Size.fromHeight(kToolbarHeight),
+        child: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          title: GestureDetector(
+            onLongPress: _showModelSelector,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Wenkikly AI', style: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 20, color: Colors.white)),
+                Text('${_selectedModel.name} • ~$totalTokens tk', style: const TextStyle(fontSize: 12, color: Colors.deepPurpleAccent)),
+              ],
+            ),
           ),
+          actions: [
+            if (!_isSelectionMode) ...[
+              IconButton(icon: const Icon(Icons.search), onPressed: () => showSearch(context: context, delegate: _ChatSearchDelegate(_currentSession!.messages))),
+              IconButton(icon: const Icon(Icons.summarize), onPressed: _summarizeChat),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert),
+                onSelected: (val) {
+                  if (val == 'export') _exportChat();
+                  if (val == 'stats') _showChatStats();
+                  if (val == 'backup') _backupChats();
+                  if (val == 'restore') _restoreChats();
+                  if (val == 'premium') Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentScreen(onPaymentSuccess: () { Navigator.pop(context); _loadSettings(); })));
+                  if (val == 'about') Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutScreen()));
+                  if (val == 'settings') Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(onThemeChanged: (b,c){}, onBiometricChanged: (b){}, onLanguageChanged: (s){}, onFontSizeChanged: (d){}))).then((_) => _loadSettings());
+                  if (val == 'logout') widget.onLogout();
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'export', child: Text('Ekspor Chat (MD)')),
+                  const PopupMenuItem(value: 'stats', child: Text('Statistik Chat')),
+                  const PopupMenuItem(value: 'backup', child: Text('Backup ke Clipboard')),
+                  const PopupMenuItem(value: 'restore', child: Text('Restore dari Clipboard')),
+                  const PopupMenuItem(value: 'premium', child: Text('Upgrade Premium')),
+                  const PopupMenuItem(value: 'about', child: Text('Tentang Aplikasi')),
+                  const PopupMenuItem(value: 'settings', child: Text('Pengaturan')),
+                  const PopupMenuItem(value: 'logout', child: Text('Logout')),
+                ],
+              ),
+            ] else ...[
+              IconButton(icon: const Icon(Icons.delete, color: Colors.redAccent), onPressed: () {
+                setState(() {
+                  for (int i in _selectedIndices.toList()..sort((a,b)=>b.compareTo(a))) {
+                    _currentSession!.messages.removeAt(i);
+                  }
+                  _selectedIndices.clear();
+                  _isSelectionMode = false;
+                });
+                _storageService.saveSessions(_sessions);
+              }),
+              IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() { _isSelectionMode = false; _selectedIndices.clear(); })),
+            ]
+          ],
         ),
-        actions: [
-          IconButton(icon: const Icon(Icons.search), tooltip: 'Cari di Chat', onPressed: () => showSearch(context: context, delegate: _ChatSearchDelegate(_currentSession!.messages))),
-          IconButton(icon: const Icon(Icons.summarize), tooltip: 'Rangkum Chat', onPressed: _summarizeChat),
-          IconButton(icon: const Icon(Icons.add_comment_outlined), tooltip: 'Chat Baru', onPressed: _createNewSession),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            onSelected: (val) {
-              if (val == 'export') _exportChat();
-              if (val == 'stats') _showChatStats();
-              if (val == 'backup') _backupChats();
-              if (val == 'restore') _restoreChats();
-              if (val == 'clear') _clearCurrentChat();
-              if (val == 'premium') Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentScreen(onPaymentSuccess: () { Navigator.pop(context); _loadSettings(); })));
-              if (val == 'about') Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutScreen()));
-              if (val == 'settings') Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(onThemeChanged: (b,c){}, onBiometricChanged: (b){}, onLanguageChanged: (s){}, onFontSizeChanged: (d){}))).then((_) => _loadSettings());
-              if (val == 'logout') widget.onLogout();
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 'export', child: Text('Ekspor Chat (MD)')),
-              const PopupMenuItem(value: 'stats', child: Text('Statistik Chat')),
-              const PopupMenuItem(value: 'backup', child: Text('Backup ke Clipboard')),
-              const PopupMenuItem(value: 'restore', child: Text('Restore dari Clipboard')),
-              const PopupMenuItem(value: 'clear', child: Text('Hapus Isi Chat Ini')),
-              const PopupMenuDivider(),
-              const PopupMenuItem(value: 'premium', child: Text('Upgrade Premium')),
-              const PopupMenuItem(value: 'about', child: Text('Tentang Aplikasi')),
-              const PopupMenuItem(value: 'settings', child: Text('Pengaturan')),
-              const PopupMenuItem(value: 'logout', child: Text('Logout')),
-            ],
-          ),
-        ],
       ),
       drawer: Drawer(
-        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        backgroundColor: const Color(0xFF0F0C29),
         child: Column(
           children: [
             DrawerHeader(
-              decoration: BoxDecoration(color: isDark ? const Color(0xFF0F0F0F) : Colors.grey[200]),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(colors: [Color(0xFF0F0C29), Color(0xFF302B63)]),
+              ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text('Riwayat Obrolan', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  Text('Paket: ${_tier.toUpperCase()}', style: TextStyle(fontSize: 12, color: _tier == 'free' ? Colors.orange : Colors.green, fontWeight: FontWeight.bold)),
+                  const Text('Riwayat Obrolan', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text('Paket: ${_tier.toUpperCase()}', style: TextStyle(fontSize: 12, color: _tier == 'free' ? Colors.orangeAccent : Colors.greenAccent, fontWeight: FontWeight.bold)),
                 ],
               ),
             ),
@@ -474,8 +518,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     itemBuilder: (context, index) {
                       final session = _sessions[index];
                       return ListTile(
-                        leading: const Icon(Icons.chat_bubble_outline, size: 20),
-                        title: Text(session.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        leading: Icon(session.isPinned ? Icons.push_pin : Icons.chat_bubble_outline, size: 20, color: session.isPinned ? Colors.amberAccent : Colors.white),
+                        title: Text(session.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
                         selected: session.id == _currentSession?.id,
                         selectedTileColor: Colors.deepPurple.withOpacity(0.2),
                         trailing: IconButton(icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent), onPressed: () => _deleteSession(session.id)),
@@ -490,168 +534,205 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
       ),
-      body: _currentSession == null
-          ? const Center(child: CircularProgressIndicator())
-          : GestureDetector(
-              onDoubleTap: () => setState(() => _isZenMode = !_isZenMode),
-              child: Stack(
-                children: [
-                  Column(
-                    children: [
-                      Expanded(
-                        child: _currentSession!.messages.isEmpty
-                            ? Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.auto_awesome, size: 64, color: Colors.deepPurple.withOpacity(0.5)),
-                                    const SizedBox(height: 16),
-                                    Text('Mulai percakapan dengan ${_selectedModel.name}', style: const TextStyle(color: Colors.white54)),
-                                    const SizedBox(height: 24),
-                                    Wrap(
-                                      spacing: 8, 
-                                      runSpacing: 8, 
-                                      alignment: WrapAlignment.center, 
-                                      children: _quickPrompts.map((prompt) => ActionChip(
-                                        label: Text(prompt, style: const TextStyle(fontSize: 12)), 
-                                        onPressed: () => _sendMessage(text: prompt), 
-                                        backgroundColor: const Color(0xFF2C2C2C), 
-                                        side: BorderSide.none
-                                      )).toList()
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : ListView.builder(
-                                controller: _scrollController, 
-                                padding: const EdgeInsets.all(16), 
-                                itemCount: _currentSession!.messages.length,
-                                itemBuilder: (context, index) {
-                                  final msg = _currentSession!.messages[index];
-                                  final isUser = msg['role'] == 'user';
-                                  final timeStr = DateFormat('HH:mm').format(DateTime.parse(msg['timestamp'] ?? DateTime.now().toIso8601String()));
-                                  final isImageUrl = msg['content'] != null && msg['content']!.contains('image.pollinations.ai');
-                                  
-                                  return Align(
-                                    alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-                                    child: GestureDetector(
-                                      onLongPress: () => setState(() => _quotedMessage = msg['content']),
-                                      child: Container(
-                                        margin: const EdgeInsets.symmetric(vertical: 6), 
-                                        padding: const EdgeInsets.all(12),
-                                        constraints: BoxConstraints(maxWidth: _isFullWidth ? MediaQuery.of(context).size.width * 0.95 : MediaQuery.of(context).size.width * 0.85),
-                                        decoration: BoxDecoration(
-                                          color: isUser ? Colors.deepPurple.shade700 : const Color(0xFF2C2C2C),
-                                          borderRadius: BorderRadius.only(
-                                            topLeft: const Radius.circular(16), 
-                                            topRight: const Radius.circular(16), 
-                                            bottomLeft: isUser ? const Radius.circular(16) : Radius.zero, 
-                                            bottomRight: isUser ? Radius.zero : const Radius.circular(16)
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF0B0B0F), Color(0xFF1A1A2E), Color(0xFF0B0B0F)],
+          ),
+        ),
+        child: _currentSession == null
+            ? const Center(child: CircularProgressIndicator(color: Colors.deepPurpleAccent))
+            : GestureDetector(
+                onDoubleTap: () => setState(() => _isZenMode = !_isZenMode),
+                child: Stack(
+                  children: [
+                    Column(
+                      children: [
+                        Expanded(
+                          child: _currentSession!.messages.isEmpty
+                              ? Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.auto_awesome, size: 80, color: Colors.deepPurpleAccent.withOpacity(0.5)),
+                                      const SizedBox(height: 24),
+                                      Text('Mulai percakapan dengan ${_selectedModel.name}', style: const TextStyle(color: Colors.white54, fontSize: 16)),
+                                      const SizedBox(height: 32),
+                                      Wrap(
+                                        spacing: 12, 
+                                        runSpacing: 12, 
+                                        alignment: WrapAlignment.center, 
+                                        children: _quickPrompts.map((prompt) => ActionChip(
+                                          label: Text(prompt, style: const TextStyle(fontSize: 12, color: Colors.white)), 
+                                          onPressed: () => _sendMessage(text: prompt), 
+                                          backgroundColor: Colors.white.withOpacity(0.1), 
+                                          side: BorderSide(color: Colors.white.withOpacity(0.2))
+                                        )).toList()
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : ListView.builder(
+                                  controller: _scrollController, 
+                                  padding: const EdgeInsets.only(top: 100, bottom: 160, left: 16, right: 16), 
+                                  itemCount: _currentSession!.messages.length,
+                                  itemBuilder: (context, index) {
+                                    final msg = _currentSession!.messages[index];
+                                    final isUser = msg['role'] == 'user';
+                                    final timeStr = DateFormat('HH:mm').format(DateTime.parse(msg['timestamp'] ?? DateTime.now().toIso8601String()));
+                                    final isImageUrl = msg['content'] != null && msg['content']!.contains('image.pollinations.ai');
+                                    final isSelected = _selectedIndices.contains(index);
+                                    
+                                    return AnimatedContainer(
+                                      duration: const Duration(milliseconds: 300),
+                                      margin: const EdgeInsets.symmetric(vertical: 8), 
+                                      decoration: isSelected ? BoxDecoration(border: Border.all(color: Colors.deepPurpleAccent, width: 2), borderRadius: BorderRadius.circular(20)) : null,
+                                      child: Align(
+                                        alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                                        child: GestureDetector(
+                                          onLongPress: () {
+                                            if (_isSelectionMode) _toggleSelection(index);
+                                            else {
+                                              _haptic();
+                                              showModalBottomSheet(context: context, backgroundColor: const Color(0xFF1E1E2C), builder: (c) => Wrap(children: [
+                                                ListTile(leading: const Icon(Icons.copy, color: Colors.white), title: const Text('Copy', style: TextStyle(color: Colors.white)), onTap: () { Clipboard.setData(ClipboardData(text: msg['content']!)); Navigator.pop(c); }),
+                                                ListTile(leading: const Icon(Icons.reply, color: Colors.white), title: const Text('Quote Reply', style: TextStyle(color: Colors.white)), onTap: () { setState(() => _quotedMessage = msg['content']); Navigator.pop(c); }),
+                                                ListTile(leading: const Icon(Icons.push_pin, color: Colors.amberAccent), title: const Text('Pin Message', style: TextStyle(color: Colors.white)), onTap: () { _togglePinMessage(index); Navigator.pop(c); }),
+                                                ListTile(leading: const Icon(Icons.checklist, color: Colors.white), title: const Text('Select', style: TextStyle(color: Colors.white)), onTap: () { setState(() { _isSelectionMode = true; _selectedIndices.add(index); }); Navigator.pop(c); }),
+                                              ]));
+                                            }
+                                          },
+                                          onTap: () { if (_isSelectionMode) _toggleSelection(index); },
+                                          child: Container(
+                                            padding: const EdgeInsets.all(16),
+                                            constraints: BoxConstraints(maxWidth: _isFullWidth ? MediaQuery.of(context).size.width * 0.95 : MediaQuery.of(context).size.width * 0.85),
+                                            decoration: BoxDecoration(
+                                              gradient: isUser ? const LinearGradient(colors: [Color(0xFF673AB7), Color(0xFF3F51B5)], begin: Alignment.topLeft, end: Alignment.bottomRight) : null,
+                                              color: isUser ? null : Colors.white.withOpacity(0.05),
+                                              border: isUser ? null : Border.all(color: Colors.white.withOpacity(0.1)),
+                                              borderRadius: BorderRadius.only(
+                                                topLeft: const Radius.circular(20), 
+                                                topRight: const Radius.circular(20), 
+                                                bottomLeft: isUser ? const Radius.circular(20) : Radius.zero, 
+                                                bottomRight: isUser ? Radius.zero : const Radius.circular(20)
+                                              ),
+                                              boxShadow: [BoxShadow(color: isUser ? Colors.deepPurple.withOpacity(0.3) : Colors.black26, blurRadius: 10, offset: const Offset(0, 4))],
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                if (msg['isPinned'] == true) const Row(children: [Icon(Icons.push_pin, size: 12, color: Colors.amberAccent), SizedBox(width: 4), Text('Pinned', style: TextStyle(fontSize: 10, color: Colors.amberAccent))]),
+                                                if (msg['reaction'] != null) Text(msg['reaction'], style: const TextStyle(fontSize: 20)),
+                                                if (isImageUrl)
+                                                  ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(msg['content']!.split('(')[1].split(')')[0], fit: BoxFit.cover))
+                                                else if (isUser) 
+                                                  SelectableText(msg['content']!, style: const TextStyle(fontSize: 15, color: Colors.white, height: 1.5))
+                                                else
+                                                  MarkdownBody(
+                                                      data: msg['content']!,
+                                                      styleSheet: MarkdownStyleSheet(p: const TextStyle(fontSize: 15, color: Colors.white, height: 1.5)),
+                                                      builders: {'code': HighlightCodeBuilder(onExplain: (code) => _sendMessage(text: "Jelaskan kode berikut:\n\n$code"))},
+                                                    ),
+                                                const SizedBox(height: 8),
+                                                Row(
+                                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                  children: [
+                                                    Text(timeStr, style: const TextStyle(fontSize: 10, color: Colors.white38)),
+                                                    Row(
+                                                      children: [
+                                                        if (!isUser) IconButton(icon: const Icon(Icons.volume_up, size: 16, color: Colors.white54), onPressed: () => _speak(msg['content']!)),
+                                                      ],
+                                                    ),
+                                                  ],
+                                                )
+                                              ],
+                                            ),
                                           ),
                                         ),
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                        if (_isLoading)
+                          const Padding(padding: EdgeInsets.all(16.0), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepPurpleAccent)), SizedBox(width: 12), Text('Wenkikly sedang mengetik...', style: TextStyle(color: Colors.white54, fontSize: 12))])),
+                        
+                        if (!_isZenMode)
+                          ClipRRect(
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.05),
+                                border: Border(top: BorderSide(color: Colors.white.withOpacity(0.1))),
+                              ),
+                              child: SafeArea(
+                                child: Column(
+                                  children: [
+                                    if (_quotedMessage.isNotEmpty)
+                                      Container(
+                                        padding: const EdgeInsets.all(8), 
+                                        margin: const EdgeInsets.only(bottom: 12),
+                                        decoration: const BoxDecoration(color: Colors.white10, border: Border(left: BorderSide(color: Colors.deepPurpleAccent, width: 4))),
+                                        child: Row(
                                           children: [
-                                            if (isImageUrl)
-                                              ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(msg['content']!.split('(')[1].split(')')[0], fit: BoxFit.cover))
-                                            else if (isUser) 
-                                              SelectableText(msg['content']!, style: const TextStyle(fontSize: 15, color: Colors.white))
-                                            else
-                                              MarkdownBody(
-                                                  data: msg['content']!,
-                                                  styleSheet: MarkdownStyleSheet(p: const TextStyle(fontSize: 15, color: Colors.white)),
-                                                  builders: {'code': HighlightCodeBuilder(onExplain: (code) => _sendMessage(text: "Jelaskan kode berikut secara detail:\n\n$code"))},
-                                                ),
-                                            const SizedBox(height: 8),
-                                            Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                              children: [
-                                                Text(timeStr, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                                                Row(
-                                                  children: [
-                                                    IconButton(icon: const Icon(Icons.copy, size: 16, color: Colors.grey), onPressed: () { Clipboard.setData(ClipboardData(text: msg['content']!)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disalin'))); }),
-                                                    if (!isUser) IconButton(icon: const Icon(Icons.volume_up, size: 16, color: Colors.grey), onPressed: () => _speak(msg['content']!)),
-                                                  ],
-                                                ),
-                                              ],
-                                            )
+                                            Expanded(child: Text(_quotedMessage, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.white54))),
+                                            IconButton(icon: const Icon(Icons.close, size: 16, color: Colors.white54), onPressed: () => setState(() => _quotedMessage = '')),
                                           ],
                                         ),
                                       ),
-                                    ),
-                                  );
-                                },
-                              ),
-                      ),
-                      if (_isLoading)
-                        const Padding(padding: EdgeInsets.all(8.0), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepPurpleAccent)), SizedBox(width: 12), Text('Wenkikly sedang mengetik...', style: TextStyle(color: Colors.grey, fontSize: 12))])),
-                      
-                      if (!_isZenMode)
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: const BoxDecoration(color: Color(0xFF1A1A1A), border: Border(top: BorderSide(color: Colors.white12))),
-                          child: SafeArea(
-                            child: Column(
-                              children: [
-                                if (_quotedMessage.isNotEmpty)
-                                  Container(
-                                    padding: const EdgeInsets.all(8), 
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    decoration: const BoxDecoration(color: Color(0xFF2C2C2C), border: Border(left: BorderSide(color: Colors.deepPurple, width: 4))),
-                                    child: Row(
+                                    if (_pickedImage != null)
+                                      Stack(
+                                        children: [
+                                          Container(height: 80, width: 80, margin: const EdgeInsets.only(bottom: 12), decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), image: DecorationImage(image: FileImage(File(_pickedImage!.path)), fit: BoxFit.cover))),
+                                          Positioned(top: 0, right: 0, child: GestureDetector(onTap: () => setState(() => _pickedImage = null), child: Container(padding: const EdgeInsets.all(4), decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle), child: const Icon(Icons.close, size: 14, color: Colors.white)))),
+                                        ],
+                                      ),
+                                    Row(
                                       children: [
-                                        Expanded(child: Text(_quotedMessage, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey))),
-                                        IconButton(icon: const Icon(Icons.close, size: 16, color: Colors.grey), onPressed: () => setState(() => _quotedMessage = '')),
+                                        IconButton(icon: const Icon(Icons.add_photo_alternate, color: Colors.white54), onPressed: _pickImage),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _controller, 
+                                            style: const TextStyle(color: Colors.white),
+                                            maxLength: 4000,
+                                            buildCounter: (context, {required currentLength, required isFocused, maxLength}) => Text('$currentLength/$maxLength', style: const TextStyle(fontSize: 10, color: Colors.white38)),
+                                            decoration: InputDecoration(
+                                              hintText: 'Tanya ${_selectedModel.name}...',
+                                              hintStyle: const TextStyle(color: Colors.white38),
+                                              filled: true, 
+                                              fillColor: Colors.white.withOpacity(0.1),
+                                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                                              contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                                              suffixIcon: _isEnhancing 
+                                                ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))) 
+                                                : IconButton(icon: const Icon(Icons.auto_fix_high, color: Colors.amberAccent), onPressed: _enhanceCurrentPrompt),
+                                            ),
+                                            onSubmitted: (_) => _sendMessage(),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          decoration: const BoxDecoration(shape: BoxShape.circle, gradient: LinearGradient(colors: [Colors.deepPurpleAccent, Colors.blueAccent])),
+                                          child: IconButton(icon: const Icon(Icons.send, color: Colors.white), onPressed: _isLoading ? null : () => _sendMessage())
+                                        ),
                                       ],
                                     ),
-                                  ),
-                                if (_pickedImage != null)
-                                  Stack(
-                                    children: [
-                                      Container(height: 80, width: 80, margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), image: DecorationImage(image: FileImage(File(_pickedImage!.path)), fit: BoxFit.cover))),
-                                      Positioned(top: 0, right: 0, child: GestureDetector(onTap: () => setState(() => _pickedImage = null), child: Container(padding: const EdgeInsets.all(2), decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle), child: const Icon(Icons.close, size: 14, color: Colors.white)))),
-                                    ],
-                                  ),
-                                Row(
-                                  children: [
-                                    CircleAvatar(backgroundColor: const Color(0xFF2C2C2C), child: IconButton(icon: const Icon(Icons.add_photo_alternate, color: Colors.white54, size: 20), onPressed: _pickImage)),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _controller, 
-                                        style: const TextStyle(color: Colors.white),
-                                        maxLength: 4000,
-                                        buildCounter: (context, {required currentLength, required isFocused, maxLength}) => Text('$currentLength/$maxLength', style: const TextStyle(fontSize: 10, color: Colors.white38)),
-                                        decoration: InputDecoration(
-                                          hintText: 'Tanya ${_selectedModel.name}...',
-                                          hintStyle: const TextStyle(color: Colors.white54),
-                                          filled: true, 
-                                          fillColor: const Color(0xFF2C2C2C),
-                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
-                                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                          suffixIcon: _isEnhancing 
-                                            ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))) 
-                                            : IconButton(icon: const Icon(Icons.auto_fix_high, color: Colors.amberAccent), onPressed: _enhanceCurrentPrompt),
-                                        ),
-                                        onSubmitted: (_) => _sendMessage(),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    CircleAvatar(backgroundColor: Colors.deepPurple, child: IconButton(icon: const Icon(Icons.send, color: Colors.white, size: 20), onPressed: _isLoading ? null : () => _sendMessage())),
                                   ],
                                 ),
-                              ],
+                              ),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
-                  if (_showScrollToTop)
-                    Positioned(bottom: 80, right: 16, child: FloatingActionButton.small(backgroundColor: Colors.deepPurple, onPressed: _scrollToTop, child: const Icon(Icons.arrow_upward, color: Colors.white))),
-                  Positioned(bottom: 80, left: 16, child: FloatingActionButton.small(backgroundColor: Colors.deepPurple, onPressed: _createNewSession, child: const Icon(Icons.add, color: Colors.white))),
-                ],
+                      ],
+                    ),
+                    if (_showScrollToTop)
+                      Positioned(bottom: 100, right: 16, child: FloatingActionButton.small(backgroundColor: Colors.deepPurpleAccent, onPressed: _scrollToTop, child: const Icon(Icons.arrow_upward, color: Colors.white))),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }
@@ -668,12 +749,12 @@ class HighlightCodeBuilder extends MarkdownElementBuilder {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: const BoxDecoration(color: Color(0xFF1E1E1E), borderRadius: BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8))),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: const BoxDecoration(color: Color(0xFF1E1E1E), borderRadius: BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12))),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(language.toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.grey)),
+              Text(language.toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.white54)),
               InkWell(
                 onTap: () => onExplain(element.textContent),
                 child: const Row(children: [Icon(Icons.lightbulb, size: 14, color: Colors.amberAccent), SizedBox(width: 4), Text('Explain', style: TextStyle(fontSize: 10, color: Colors.amberAccent))]),
@@ -682,10 +763,10 @@ class HighlightCodeBuilder extends MarkdownElementBuilder {
           ),
         ),
         ClipRRect(
-          borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(8), bottomRight: Radius.circular(8)),
+          borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(12), bottomRight: Radius.circular(12)),
           child: HighlightView(
             element.textContent, language: language.isEmpty ? 'plaintext' : language, theme: vs2015Theme,
-            padding: const EdgeInsets.all(12), textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+            padding: const EdgeInsets.all(16), textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 13),
           ),
         ),
       ],
@@ -715,8 +796,8 @@ class _ChatSearchDelegate extends SearchDelegate {
       itemBuilder: (context, index) {
         final msg = results[index];
         return ListTile(
-          leading: Icon(msg['role'] == 'user' ? Icons.person : Icons.smart_toy),
-          title: Text(msg['content'].toString(), maxLines: 3, overflow: TextOverflow.ellipsis),
+          leading: Icon(msg['role'] == 'user' ? Icons.person : Icons.smart_toy, color: Colors.white),
+          title: Text(msg['content'].toString(), maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
         );
       },
     );

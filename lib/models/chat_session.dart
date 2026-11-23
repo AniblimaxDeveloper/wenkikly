@@ -6,7 +6,7 @@ class ChatSession {
   String modelId;
   String? systemPromptOverride;
   double? temperatureOverride;
-  bool hideTokens;
+  bool isPinned;
 
   ChatSession({
     required this.id, 
@@ -16,7 +16,7 @@ class ChatSession {
     this.folder = 'General',
     this.systemPromptOverride,
     this.temperatureOverride,
-    this.hideTokens = false,
+    this.isPinned = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -27,7 +27,7 @@ class ChatSession {
     'modelId': modelId,
     'systemPromptOverride': systemPromptOverride,
     'temperatureOverride': temperatureOverride,
-    'hideTokens': hideTokens,
+    'isPinned': isPinned,
   };
 
   factory ChatSession.fromJson(Map<String, dynamic> json) => ChatSession(
@@ -38,6 +38,6 @@ class ChatSession {
     modelId: json['modelId'],
     systemPromptOverride: json['systemPromptOverride'],
     temperatureOverride: json['temperatureOverride'],
-    hideTokens: json['hideTokens'] ?? false,
+    isPinned: json['isPinned'] ?? false,
   );
 }
