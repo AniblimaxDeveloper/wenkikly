@@ -1,12 +1,12 @@
 buildscript {
-    ext.kotlin_version = '2.4.10'
+    ext.kotlin_version = '2.4.20'
     repositories {
         google()
         mavenCentral()
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:9.1.1'
+        classpath 'com.android.tools.build:gradle:9.3.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
@@ -19,8 +19,19 @@ allprojects {
 }
 
 rootProject.buildDir = '../build'
+
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
+    
+    // TRIK SAKTI: Paksa semua plugin (termasuk share_plus) pakai SDK 36
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            project.android {
+                compileSdkVersion 36
+            }
+        }
+    }
+    
     project.evaluationDependsOn(':app')
 }
 
